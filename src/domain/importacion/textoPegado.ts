@@ -49,7 +49,7 @@ export function filasDeTexto(texto: string, hoy: string): Celda[][] {
   let fechaGrupo: string | null = null;
   let pendiente: string[] = [];
   for (const bruta of texto.split(/\r?\n/)) {
-    const palabras = bruta.replace(/[  ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const palabras = bruta.replace(/[\u00a0\u202f]/g, ' ').trim().split(/\s+/).filter(Boolean);
     if (palabras.length === 0) continue;
     const f = fechaAlInicio(palabras, hoy);
     const resto = f ? palabras.slice(f.usadas) : palabras;
