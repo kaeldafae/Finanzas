@@ -75,11 +75,37 @@ describe('aplicar importación', () => {
       traspasos: [{ id: 'h2', anio: 2026, mes: 3, fecha: '2026-03-01', cuenta: 'Revolut', importe: 60000, tipo: 'interno' as const }],
       reglas: [{ id: 'mercadona', categoriaId: 'cat-comida', tipo: 'Variable' as const }],
       meses: [{ anio: 2026, mes: 3 }],
+      importacion: { id: 'imp1', fecha: '2026-10-02T10:00:00Z', cuentas: ['Revolut'], movimientos: 0, desde: '2026-03-01', hasta: '2026-03-02' },
     };
     expect((await aplicarImportacion(filas, b)).guardados).toBe(2);
     expect((await aplicarImportacion({ ...filas, gastos: filas.gastos.map((g) => ({ ...g, id: 'otro' })) }, b)).guardados).toBe(0);
     expect(await huellasImportadas(b)).toEqual(new Set(['h1', 'h2']));
     expect((await leerTodo(b)).meses).toHaveLength(1);
+    await b.delete();
+  });
+});
+
+describe('deshacer una importación', () => {
+  it('quita todo lo que creó, libera las huellas y deja lo apuntado a mano', async () => {
+    const { aplicarImportacion, deshacerImportacion, huellasImportadas, guardarGasto } = await import('./operaciones');
+    const b = new BaseDatos('deshacer-imp');
+    await b.open();
+    await guardarGasto({ anio: 2026, mes: 3, categoriaId: 'cat-comida', importe: 900, tipo: 'Variable', nota: 'a mano' }, b);
+    const importacion = { id: 'imp9', fecha: '2026-10-02T10:00:00Z', cuentas: ['Revolut'], movimientos: 2, desde: '2026-03-01', hasta: '2026-03-02' };
+    await aplicarImportacion({
+      importacion,
+      gastos: [{ id: 'g', anio: 2026, mes: 3, categoriaId: 'cat-comida', importe: 4530, tipo: 'Variable', nota: 'Mercadona', huella: 'h1' }],
+      ingresos: [], extras: [],
+      traspasos: [{ id: 'h2', anio: 2026, mes: 3, fecha: '2026-03-01', cuenta: 'Revolut', importe: 60000, tipo: 'interno' }],
+      reglas: [], meses: [],
+    }, b);
+    expect((await leerTodo(b)).importaciones).toHaveLength(1);
+    expect(await deshacerImportacion('imp9', b)).toBe(2);
+    const d = await leerTodo(b);
+    expect(d.gastos.map((g) => g.nota)).toEqual(['a mano']);
+    expect(d.traspasos).toHaveLength(0);
+    expect(d.importaciones[0]?.deshecha).toBe(true);
+    expect(await huellasImportadas(b)).toEqual(new Set());
     await b.delete();
   });
 });

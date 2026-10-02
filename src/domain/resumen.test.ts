@@ -54,6 +54,7 @@ function datos(parcial: Partial<DatosFinancieros>): DatosFinancieros {
     reglas: [],
     traspasos: [],
     presupuestos: [],
+    importaciones: [],
     ...parcial,
   };
 }

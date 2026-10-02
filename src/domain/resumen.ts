@@ -10,6 +10,7 @@ import {
   type MesRegistro,
   type Pagador,
   type Periodo,
+  type Importacion,
   type Presupuesto,
   type Regla,
   type Traspaso,
@@ -27,6 +28,7 @@ export interface DatosFinancieros {
   reglas: Regla[];
   traspasos: Traspaso[];
   presupuestos: Presupuesto[];
+  importaciones: Importacion[];
 }
 
 /**

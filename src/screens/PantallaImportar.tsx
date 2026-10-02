@@ -16,6 +16,8 @@ import {
   type MovimientoPropuesto,
 } from '../domain/importacion/importar';
 import { deducirDecimal, type Celda } from '../domain/importacion/texto';
+import { analizarCoherencia, comprobarConservacion } from '../domain/importacion/analisis';
+import { RevisionIA } from './importar/RevisionIA';
 import { CONCEPTOS_EXTRA, idMes, nombreMes, TIPOS_GASTO, type Categoria, type ClaveCategoria, type ConceptoExtra, type Pagador, type TipoGasto } from '../domain/modelo';
 import { aplicarImportacion, guardarPresupuestos, huellasImportadas, reglasAprendidas } from '../db/operaciones';
 import { nuevoId } from '../db/db';
@@ -164,6 +166,7 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo }: { a: Arch
 // --- Paso 2: revisión ------------------------------------------------------------------------
 
 interface PropsFila {
+  notaIA?: string | undefined;
   m: MovimientoPropuesto;
   d: Decision;
   onCambio: (d: Decision) => void;
@@ -171,7 +174,7 @@ interface PropsFila {
   pagadores: readonly Pagador[];
 }
 
-function FilaMovimiento({ m, d, onCambio, categorias, pagadores }: PropsFila) {
+function FilaMovimiento({ m, d, onCambio, categorias, pagadores, notaIA }: PropsFila) {
   const error = validarDecision(m, d);
   const opciones = m.importe < 0 ? DESTINOS_SALIDA : DESTINOS_ENTRADA;
   const dudoso = m.propuesta.confianza < UMBRAL_REVISION;
@@ -223,6 +226,7 @@ function FilaMovimiento({ m, d, onCambio, categorias, pagadores }: PropsFila) {
           )}
         </div>
       )}
+      {notaIA && <span className="peq" style={{ display: 'block', color: 'var(--info-text)' }}>IA: {notaIA}</span>}
       {d.incluir && error && <span className="error">{error}</span>}
       {dudoso && d.incluir && !error && <span className="peq muted">Revisado por ti al guardar.</span>}
     </li>
@@ -338,6 +342,7 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verTodo, setVerTodo] = useState(false);
+  const [revisadoIA, setRevisadoIA] = useState<Map<string, string>>(new Map());
 
   async function anadir(lista: FileList | null) {
     if (!lista) return;
@@ -404,6 +409,11 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
     return [...new Set(fase.movs.filter((m) => !m.duplicado).map((m) => idMes(m.anio, m.mes)))].filter((k) => manual.has(k)).sort();
   }, [fase, datos]);
 
+  const avisos = useMemo(() => {
+    if (fase.paso !== 'revision') return [];
+    return analizarCoherencia(fase.movs, decisiones, datos.gastos, (id) => datos.categorias.find((c) => c.id === id)?.nombre ?? 'sin categoría');
+  }, [fase, decisiones, datos]);
+
   async function guardar(movs: MovimientoPropuesto[]) {
     setError(null);
     const efectivas = new Map([...decisiones].map(([id, d]) => {
@@ -413,7 +423,24 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
     setOcupado('Guardando…');
     try {
       const filas = construirFilas(movs, efectivas, nuevoId);
-      await aplicarImportacion(filas);
+      // Comprobación final: cada céntimo de lo incluido acaba exactamente en un sitio.
+      const conservacion = comprobarConservacion(movs, efectivas, filas);
+      if (!conservacion.ok) {
+        throw new Error(`No se guarda nada: la suma no cuadra (${formatearEuros(conservacion.totalMovimientos)} en el extracto frente a ${formatearEuros(conservacion.totalFilas)} clasificados). Avísame de este error.`);
+      }
+      const incluidos = movs.filter((m) => !m.duplicado && efectivas.get(m.id)?.incluir);
+      const fechas = incluidos.map((m) => m.fecha).sort();
+      await aplicarImportacion({
+        ...filas,
+        importacion: {
+          id: nuevoId(),
+          fecha: new Date().toISOString(),
+          cuentas: [...new Set(incluidos.map((m) => m.cuenta))],
+          movimientos: incluidos.length,
+          desde: fechas[0] ?? '',
+          hasta: fechas[fechas.length - 1] ?? '',
+        },
+      });
       setFase({ paso: 'informe', inf: informe(filas), pendientesNomina: filas.ingresos.length });
       window.scrollTo(0, 0);
     } catch (e) {
@@ -444,7 +471,7 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
     const traspasos = nuevos.filter((m) => m.pareja).length / 2;
     const fila = (m: MovimientoPropuesto) => {
       const d = decisiones.get(m.id);
-      return d ? <FilaMovimiento key={m.id} m={m} d={d} onCambio={(x) => cambiar(movs, m, x)} categorias={datos.categorias} pagadores={datos.pagadores} /> : null;
+      return d ? <FilaMovimiento key={m.id} m={m} d={d} notaIA={revisadoIA.get(m.id)} onCambio={(x) => cambiar(movs, m, x)} categorias={datos.categorias} pagadores={datos.pagadores} /> : null;
     };
     return (
       <>
@@ -470,6 +497,31 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
                 </label>
               );
             })}
+          </section>
+        )}
+
+        <RevisionIA
+          movs={movs}
+          decisiones={decisiones}
+          categorias={datos.categorias}
+          dudoso={necesitaRevision}
+          onAplicar={(cambios) => {
+            setDecisiones((prev) => {
+              const sig = new Map(prev);
+              for (const [id, c] of cambios) {
+                const d = sig.get(id);
+                if (d) sig.set(id, { ...d, categoriaId: c.categoriaId, tipoGasto: c.tipo });
+              }
+              return sig;
+            });
+            setRevisadoIA((prev) => new Map([...prev, ...[...cambios].map(([id, c]) => [id, c.nota] as const)]));
+          }}
+        />
+
+        {avisos.length > 0 && (
+          <section className="card" aria-labelledby="t-avisos">
+            <h2 id="t-avisos">Comprueba esto antes de guardar</h2>
+            <ul className="peq" style={{ paddingLeft: 18, margin: 0 }}>{avisos.map((a) => <li key={a.texto}>{a.texto}</li>)}</ul>
           </section>
         )}
 

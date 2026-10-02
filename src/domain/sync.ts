@@ -10,8 +10,8 @@ import type { DatosFinancieros } from './resumen';
  * para que todos los dispositivos lleguen al mismo resultado sin coordinarse.
  */
 
-export type TablaSync = 'pagadores' | 'categorias' | 'ingresos' | 'extras' | 'gastos' | 'meses' | 'reglas' | 'traspasos' | 'presupuestos';
-export const TABLAS_SYNC: readonly TablaSync[] = ['pagadores', 'categorias', 'ingresos', 'extras', 'gastos', 'meses', 'reglas', 'traspasos', 'presupuestos'];
+export type TablaSync = 'pagadores' | 'categorias' | 'ingresos' | 'extras' | 'gastos' | 'meses' | 'reglas' | 'traspasos' | 'presupuestos' | 'importaciones';
+export const TABLAS_SYNC: readonly TablaSync[] = ['pagadores', 'categorias', 'ingresos', 'extras', 'gastos', 'meses', 'reglas', 'traspasos', 'presupuestos', 'importaciones'];
 
 export type Instantanea = DatosFinancieros & { ajustes: Ajustes };
 
@@ -70,6 +70,7 @@ export function fusionar(local: Instantanea, remota: Instantanea): Instantanea {
     reglas: fusionarFilas(local.reglas, remota.reglas),
     traspasos: fusionarFilas(local.traspasos, remota.traspasos),
     presupuestos: fusionarFilas(local.presupuestos, remota.presupuestos),
+    importaciones: fusionarFilas(local.importaciones, remota.importaciones),
     ajustes: fusionarAjustes(local.ajustes, remota.ajustes),
   };
 }
@@ -88,6 +89,7 @@ export function purgarBorrados(d: Instantanea, ahora: number, dias = DIAS_CONSER
     reglas: d.reglas.filter(vivo),
     traspasos: d.traspasos.filter(vivo),
     presupuestos: d.presupuestos.filter(vivo),
+    importaciones: d.importaciones.filter(vivo),
     ajustes: d.ajustes,
   };
 }
