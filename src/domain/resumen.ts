@@ -10,6 +10,10 @@ import {
   type MesRegistro,
   type Pagador,
   type Periodo,
+  type Presupuesto,
+  type Regla,
+  type Traspaso,
+  importeGasto,
 } from './modelo';
 import { repartirResultado, type ReglasReparto, type Reparto } from './reparto';
 
@@ -20,6 +24,9 @@ export interface DatosFinancieros {
   extras: IngresoExtra[];
   gastos: Gasto[];
   meses: MesRegistro[];
+  reglas: Regla[];
+  traspasos: Traspaso[];
+  presupuestos: Presupuesto[];
 }
 
 /**
@@ -79,7 +86,7 @@ export function resumirMes(indice: IndiceMeses, p: Periodo, hoy: Periodo): Resum
   const ingresosNomina = sumar(ingresos.map((i) => i.neto));
   const propinas = sumar(extras.filter((e) => e.concepto === 'Propinas').map((e) => e.importe));
   const otrosExtras = sumar(extras.filter((e) => e.concepto !== 'Propinas').map((e) => e.importe));
-  const porTipo = (t: Gasto['tipo']) => sumar(gastos.filter((g) => g.tipo === t).map((g) => g.importe));
+  const porTipo = (t: Gasto['tipo']) => sumar(gastos.filter((g) => g.tipo === t).map(importeGasto));
   const gastosFijos = porTipo('Fijo');
   const gastosVariables = porTipo('Variable');
   const gastosExtra = porTipo('Extra');

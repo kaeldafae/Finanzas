@@ -7,6 +7,7 @@ import { Copias } from './ajustes/Copias';
 import { Fiscal } from './ajustes/Fiscal';
 import { Listas } from './ajustes/Listas';
 import { Personales } from './ajustes/Personales';
+import { Presupuestos } from './ajustes/Presupuestos';
 import { Sincronizacion } from './ajustes/Sincronizacion';
 
 function formatearBytes(b: number): string {
@@ -27,10 +28,16 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
   return (
     <>
       <h1>Ajustes</h1>
+      <section className="card" aria-labelledby="t-imp">
+        <h2 id="t-imp">Importar extractos del banco</h2>
+        <p className="peq muted">Carga los movimientos de Santander, Revolut u otro banco (CSV o Excel). Se leen en este dispositivo, se clasifican y los revisas antes de guardar.</p>
+        <a className="btn primario bloque" href="#/importar">Importar extractos</a>
+      </section>
       <Sincronizacion />
       <Copias />
       <Personales />
       <Listas />
+      <Presupuestos />
       <Fiscal />
 
       <section className="card" aria-labelledby="t-disp">

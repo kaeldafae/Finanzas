@@ -73,7 +73,11 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Lo enfocado o desplazado a la vista nunca queda bajo la barra inferior fija. */
+  scroll-padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 90px);
+}
 
 body {
   margin: 0;

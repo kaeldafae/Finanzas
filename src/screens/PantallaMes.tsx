@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { clavePeriodo, useAnalisis } from '../calculos';
-import { idMes, nombreMes, sumarMeses, type Gasto, type Ingreso, type IngresoExtra, type Periodo, type TipoGasto } from '../domain/modelo';
+import { formatearEuros } from '../domain/dinero';
+import { flujoMes, SIN_CUENTA } from '../domain/flujo';
+import { idMes, importeGasto, nombreMes, sumarMeses, type Gasto, type Ingreso, type IngresoExtra, type Periodo, type TipoGasto } from '../domain/modelo';
 import { CLAVES_REPARTO, ETIQUETAS_REPARTO } from '../domain/reparto';
 import { resumirMes } from '../domain/resumen';
 import { confirmarMes, copiarFijosMesAnterior, marcarIngresoReal } from '../db/operaciones';
 import { useEstado } from '../estado';
-import { Aviso, Importe } from '../ui/base';
+import { Aviso, Barra, Importe } from '../ui/base';
 import { FormExtra, FormGasto, FormIngreso } from '../ui/formularios';
 import { IconoAdelante, IconoAtras } from '../ui/iconos';
 
@@ -49,6 +51,11 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
   const anterior = sumarMeses(periodo, -1);
   const fijosAnterior = (indice.gastos.get(idMes(anterior.anio, anterior.mes)) ?? []).filter((g) => g.tipo === 'Fijo').length;
   const hayFijos = gastos.some((g) => g.tipo === 'Fijo');
+  const flujo = flujoMes(datos, periodo);
+  const presupuestoMes = datos.presupuestos
+    .filter((p) => p.importe > 0)
+    .map((p) => ({ categoriaId: p.id, limite: p.importe, gastado: gastos.filter((g) => g.categoriaId === p.id).reduce((s, g) => s + importeGasto(g), 0) }))
+    .sort((a, b) => b.gastado / b.limite - a.gastado / a.limite);
 
   const nombrePagador = (id: string) => datos.pagadores.find((p) => p.id === id)?.nombre ?? 'Pagador eliminado';
   const nombreCategoria = (id: string) => datos.categorias.find((c) => c.id === id)?.nombre ?? 'Sin categoría';
@@ -84,6 +91,7 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
               Copiar {fijosAnterior} gastos fijos de {nombreMes(anterior.mes)}
             </button>
           )}
+          <a className="btn bloque" href="#/importar" style={{ marginTop: 8 }}>Importar extractos del banco</a>
           <label className="check" style={{ marginTop: 8 }}>
             <input type="checkbox" checked={confirmado} onChange={(e) => void confirmarMes(periodo, e.target.checked)} />
             Mes sin ingresos ni gastos (cuenta como 0, no como hueco)
@@ -100,6 +108,7 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
                 <span className="principal">
                   {nombrePagador(i.pagadorId)}{' '}
                   {i.estado === 'Previsto' && <span className="etiqueta previsto">Previsto</span>}
+                  {i.pendienteNomina && <span className="etiqueta previsto">Completar con la nómina</span>}
                   <span className="secundario" style={{ display: 'block' }}>
                     Bruto <Importe c={i.bruto} /> · SS <Importe c={i.seguridadSocial} /> · IRPF <Importe c={i.retencionIRPF} />
                     {i.netoManual && i.neto !== i.bruto - i.seguridadSocial - i.retencionIRPF && ' · neto ajustado'}
@@ -140,23 +149,43 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
 
       {(['Fijo', 'Variable', 'Extra'] as const).map((tipo) => {
         const lista = gastos.filter((g) => g.tipo === tipo);
-        const total = lista.reduce((s, g) => s + g.importe, 0);
+        const total = lista.reduce((s, g) => s + importeGasto(g), 0);
         const titulo = tipo === 'Fijo' ? 'Gastos fijos' : tipo === 'Variable' ? 'Gastos variables' : 'Gastos extra';
+        // Agrupados por categoría: con extractos importados puede haber decenas de movimientos.
+        const grupos = new Map<string, Gasto[]>();
+        for (const g of lista) grupos.set(g.categoriaId, [...(grupos.get(g.categoriaId) ?? []), g]);
+        const filaGasto = (g: Gasto) => (
+          <li key={g.id} className="fila">
+            <button type="button" className="fila-boton" onClick={() => setEdicion({ tipo: 'gasto', fila: g, tipoGasto: g.tipo })}>
+              <span className="principal">
+                {g.comercio ?? nombreCategoria(g.categoriaId)}
+                <span className="secundario" style={{ display: 'block' }}>
+                  {[g.comercio ? nombreCategoria(g.categoriaId) : null, g.fecha ? `${g.fecha.slice(8, 10)}/${g.fecha.slice(5, 7)}` : null, g.cuenta, g.devolucion ? 'devolución' : null, g.comercio ? null : g.nota || null].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              <Importe c={importeGasto(g)} />
+            </button>
+          </li>
+        );
         return (
           <section className="card" key={tipo} aria-label={titulo}>
             <h2>{titulo} <Importe c={total} className="peq" /></h2>
             <ul className="lista">
-              {lista.map((g) => (
-                <li key={g.id} className="fila">
-                  <button type="button" className="fila-boton" onClick={() => setEdicion({ tipo: 'gasto', fila: g, tipoGasto: g.tipo })}>
-                    <span className="principal">
-                      {nombreCategoria(g.categoriaId)}
-                      {g.nota && <span className="secundario" style={{ display: 'block' }}>{g.nota}</span>}
-                    </span>
-                    <Importe c={g.importe} />
-                  </button>
-                </li>
-              ))}
+              {[...grupos.entries()].map(([categoriaId, items]) => {
+                if (items.length === 1 && items[0]) return filaGasto(items[0]);
+                const suma = items.reduce((s, g) => s + importeGasto(g), 0);
+                return (
+                  <li key={categoriaId} className="fila" style={{ display: 'block' }}>
+                    <details>
+                      <summary className="fila-boton" style={{ listStyle: 'none' }}>
+                        <span className="principal">{nombreCategoria(categoriaId)}<span className="secundario" style={{ display: 'block' }}>{items.length} movimientos · toca para ver</span></span>
+                        <Importe c={suma} />
+                      </summary>
+                      <ul className="lista" style={{ paddingLeft: 12 }}>{items.map(filaGasto)}</ul>
+                    </details>
+                  </li>
+                );
+              })}
               {lista.length === 0 && <li className="fila muted">Nada registrado.</li>}
             </ul>
             <div className="botones">
@@ -168,6 +197,47 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
           </section>
         );
       })}
+
+      {presupuestoMes.length > 0 && (
+        <section className="card" aria-labelledby="t-pres-mes">
+          <h2 id="t-pres-mes">Presupuesto</h2>
+          <ul className="lista">
+            {presupuestoMes.map((p) => (
+              <li key={p.categoriaId} className="fila" style={{ display: 'block' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span>{nombreCategoria(p.categoriaId)}</span>
+                  <span className={p.gastado > p.limite ? 'neg importe' : 'importe'}>{formatearEuros(p.gastado)} de {formatearEuros(p.limite)}</span>
+                </div>
+                <Barra valor={Math.min(10_000, Math.round((Math.max(0, p.gastado) * 10_000) / p.limite))} etiqueta={`Presupuesto de ${nombreCategoria(p.categoriaId)}`} />
+                {p.gastado > p.limite && <span className="peq neg">Te has pasado {formatearEuros(p.gastado - p.limite)}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {flujo.some((f) => f.cuenta !== SIN_CUENTA) && (
+        <section className="card" aria-labelledby="t-flujo">
+          <h2 id="t-flujo">De dónde viene y adónde va el dinero</h2>
+          <ul className="lista">
+            {flujo.map((f) => (
+              <li key={f.cuenta} className="fila" style={{ display: 'block' }}>
+                <strong>{f.cuenta}</strong>
+                <span className="secundario peq" style={{ display: 'block' }}>
+                  {[
+                    f.entradas > 0 ? `entra ${formatearEuros(f.entradas)}` : null,
+                    f.traspasosRecibidos > 0 ? `recibe ${formatearEuros(f.traspasosRecibidos)} de tus cuentas` : null,
+                    f.gastos !== 0 ? `gasta ${formatearEuros(f.gastos)}` : null,
+                    f.traspasosEnviados > 0 ? `pasa ${formatearEuros(f.traspasosEnviados)} a tus cuentas` : null,
+                    f.aHuchas !== 0 ? `${f.aHuchas > 0 ? 'aparta' : 'saca de huchas'} ${formatearEuros(Math.abs(f.aHuchas))}` : null,
+                  ].filter(Boolean).join(' → ')}
+                </span>
+                <span className="peq">Variación del mes: <Importe c={f.variacion} signo /></span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card" aria-labelledby="t-reparto">
         <h2 id="t-reparto">Reparto del resultado</h2>

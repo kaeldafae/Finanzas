@@ -1,6 +1,6 @@
 import { sumar, type Centimos } from './dinero';
 import type { DatosPagadorRenta, EntradaIRPF } from './irpf';
-import { compararPeriodos, idMes, type Ajustes, type Periodo } from './modelo';
+import { compararPeriodos, idMes, importeGasto, type Ajustes, type Periodo } from './modelo';
 import type { DatosFinancieros } from './resumen';
 
 export interface EntradaRentaAnio {
@@ -12,6 +12,8 @@ export interface EntradaRentaAnio {
   hayPrevistos: boolean;
   /** De dónde sale el alquiler usado. */
   origenAlquiler: 'manual' | 'gastos';
+  /** Ingresos importados del banco a los que aún les faltan bruto, SS y retención. */
+  pendientesNomina: number;
 }
 
 export function edadA31Diciembre(anioNacimiento: number | null, ejercicio: number): number | null {
@@ -48,7 +50,7 @@ export function prepararRenta(
   const propinas = sumar(d.extras.filter((e) => e.anio === anio && e.concepto === 'Propinas').map((e) => e.importe));
 
   const idsAlquiler = new Set(d.categorias.filter((c) => c.clave === 'alquiler').map((c) => c.id));
-  const alquilerGastos = sumar(d.gastos.filter((g) => g.anio === anio && idsAlquiler.has(g.categoriaId)).map((g) => g.importe));
+  const alquilerGastos = sumar(d.gastos.filter((g) => g.anio === anio && idsAlquiler.has(g.categoriaId)).map(importeGasto));
   const origenAlquiler = ajustes.alquilerAnualManual !== null ? 'manual' : 'gastos';
   const alquilerAnual = ajustes.alquilerAnualManual ?? alquilerGastos;
 
@@ -83,5 +85,6 @@ export function prepararRenta(
     brutoPendienteEmpresa,
     hayPrevistos: d.ingresos.some((i) => i.anio === anio && i.estado === 'Previsto'),
     origenAlquiler,
+    pendientesNomina: d.ingresos.filter((i) => i.anio === anio && i.pendienteNomina).length,
   };
 }

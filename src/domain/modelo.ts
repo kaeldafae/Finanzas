@@ -39,6 +39,12 @@ export interface Ingreso extends MetaSync {
   netoManual: boolean;
   estado: EstadoIngreso;
   nota: string;
+  /** Importado del banco: solo se conoce el neto; faltan bruto, SS y retención de la nómina. */
+  pendienteNomina?: boolean;
+  /** Datos del importador (opcionales: lo apuntado a mano no los tiene). */
+  fecha?: string;
+  cuenta?: string;
+  huella?: string;
 }
 
 export type ConceptoExtra = 'Propinas' | 'Otro';
@@ -51,13 +57,21 @@ export interface IngresoExtra extends MetaSync {
   concepto: ConceptoExtra;
   importe: Centimos;
   nota: string;
+  fecha?: string;
+  cuenta?: string;
+  huella?: string;
 }
 
 export type TipoGasto = 'Fijo' | 'Variable' | 'Extra';
 export const TIPOS_GASTO: readonly TipoGasto[] = ['Fijo', 'Variable', 'Extra'];
 
-/** Claves estables de categorías con significado para el cálculo, aunque se renombren. */
-export type ClaveCategoria = 'alquiler' | 'impuestos';
+/** Claves estables de categorías: el cálculo y el importador las reconocen aunque se renombren. */
+export const CLAVES_CATEGORIA = [
+  'alquiler', 'suministros', 'movil', 'transporte', 'comida', 'restaurantes', 'seguros', 'suscripciones',
+  'deudas', 'ocio', 'ropa', 'salud', 'hogar', 'viajes', 'educacion', 'mascotas', 'efectivo', 'comisiones',
+  'personas', 'imprevistos', 'regalos', 'impuestos', 'otros',
+] as const;
+export type ClaveCategoria = (typeof CLAVES_CATEGORIA)[number];
 
 export interface Categoria extends MetaSync {
   id: Id;
@@ -77,6 +91,52 @@ export interface Gasto extends MetaSync {
   nota: string;
   /** Marca de origen automático, p. ej. "renta-2026", para no duplicar. */
   origen?: string;
+  /** Datos del importador (opcionales: lo apuntado a mano no los tiene). */
+  fecha?: string;
+  cuenta?: string;
+  /** Comercio limpio, sin números de tarjeta ni nombres de personas. */
+  comercio?: string;
+  /** Huella del movimiento bancario para no importarlo dos veces. */
+  huella?: string;
+  /** Devolución de una compra: resta en su categoría. */
+  devolucion?: boolean;
+}
+
+/** Importe con signo de un gasto: las devoluciones restan. */
+export function importeGasto(g: Pick<Gasto, 'importe' | 'devolucion'>): Centimos {
+  return g.devolucion ? -g.importe : g.importe;
+}
+
+/** Regla aprendida: un comercio siempre va a la misma categoría. */
+export interface Regla extends MetaSync {
+  /** Clave normalizada del comercio (p. ej. "mercadona"). */
+  id: string;
+  categoriaId: Id;
+  tipo: TipoGasto;
+}
+
+export type TipoTraspaso = 'interno' | 'hucha' | 'divisa';
+
+/** Movimiento bancario que no es ni gasto ni ingreso: se guarda para la trazabilidad y para no reimportarlo. */
+export interface Traspaso extends MetaSync {
+  /** Huella del movimiento. */
+  id: string;
+  anio: number;
+  mes: number;
+  fecha: string;
+  cuenta: string;
+  /** Con signo: negativo sale de la cuenta, positivo entra. */
+  importe: Centimos;
+  tipo: TipoTraspaso;
+  /** Huella del movimiento emparejado en la otra cuenta, si se encontró. */
+  pareja?: string;
+}
+
+/** Presupuesto mensual de una categoría. */
+export interface Presupuesto extends MetaSync {
+  /** Id de la categoría. */
+  id: Id;
+  importe: Centimos;
 }
 
 /** Un mes "confirmado" existe aunque no tenga movimientos: cuenta como mes a 0, no como hueco. */

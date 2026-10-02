@@ -1,5 +1,5 @@
 import { euros } from './dinero';
-import type { Ajustes, Categoria, ParametrosFiscales } from './modelo';
+import type { Ajustes, ClaveCategoria, ParametrosFiscales } from './modelo';
 
 /**
  * Parámetros fiscales por defecto. Son datos editables desde Ajustes, no constantes del cálculo.
@@ -81,19 +81,32 @@ export function ajustesPorDefecto(): Ajustes {
   };
 }
 
-export const CATEGORIAS_POR_DEFECTO: ReadonlyArray<Pick<Categoria, 'nombre' | 'clave'>> = [
+/**
+ * Categorías de fábrica. Los nombres de las que ya existían no cambian: de ellos sale su id fijo
+ * (ver idCategoriaPorDefecto) y cambiarlos duplicaría categorías entre dispositivos.
+ */
+export const CATEGORIAS_POR_DEFECTO: ReadonlyArray<{ nombre: string; clave: ClaveCategoria }> = [
   { nombre: 'Alquiler', clave: 'alquiler' },
-  { nombre: 'Suministros' },
-  { nombre: 'Móvil/Internet' },
-  { nombre: 'Transporte' },
-  { nombre: 'Comida' },
-  { nombre: 'Seguros' },
-  { nombre: 'Suscripciones' },
-  { nombre: 'Deudas' },
-  { nombre: 'Ocio' },
-  { nombre: 'Ropa/Cuidado' },
-  { nombre: 'Imprevistos' },
-  { nombre: 'Regalos' },
+  { nombre: 'Suministros', clave: 'suministros' },
+  { nombre: 'Móvil/Internet', clave: 'movil' },
+  { nombre: 'Transporte', clave: 'transporte' },
+  { nombre: 'Comida', clave: 'comida' },
+  { nombre: 'Restaurantes y bares', clave: 'restaurantes' },
+  { nombre: 'Seguros', clave: 'seguros' },
+  { nombre: 'Suscripciones', clave: 'suscripciones' },
+  { nombre: 'Deudas', clave: 'deudas' },
+  { nombre: 'Ocio', clave: 'ocio' },
+  { nombre: 'Ropa/Cuidado', clave: 'ropa' },
+  { nombre: 'Salud y farmacia', clave: 'salud' },
+  { nombre: 'Hogar', clave: 'hogar' },
+  { nombre: 'Viajes', clave: 'viajes' },
+  { nombre: 'Educación', clave: 'educacion' },
+  { nombre: 'Mascotas', clave: 'mascotas' },
+  { nombre: 'Efectivo', clave: 'efectivo' },
+  { nombre: 'Comisiones bancarias', clave: 'comisiones' },
+  { nombre: 'Personas (Bizum y transferencias)', clave: 'personas' },
+  { nombre: 'Imprevistos', clave: 'imprevistos' },
+  { nombre: 'Regalos', clave: 'regalos' },
   { nombre: 'Impuestos', clave: 'impuestos' },
-  { nombre: 'Otros' },
+  { nombre: 'Otros', clave: 'otros' },
 ];

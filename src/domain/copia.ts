@@ -1,5 +1,6 @@
 import { MAX_CENTIMOS, TASA_UNIDAD } from './dinero';
 import {
+  CLAVES_CATEGORIA,
   CONCEPTOS_EXTRA,
   idMes,
   TIPOS_GASTO,
@@ -12,6 +13,9 @@ import {
   type MesRegistro,
   type Pagador,
   type ParametrosFiscales,
+  type Presupuesto,
+  type Regla,
+  type Traspaso,
   type Porcentajes,
   type Tramo,
 } from './modelo';
@@ -112,6 +116,12 @@ class Validador {
   }
 }
 
+function datosImportacion(val: Validador, x: Registro, r: string): void {
+  if (x['fecha'] !== undefined && (typeof x['fecha'] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x['fecha']))) val.error(`${r}.fecha`, 'fecha no válida');
+  val.texto(x, 'cuenta', r, true);
+  val.texto(x, 'huella', r, true);
+}
+
 function validarTramos(val: Validador, v: unknown, ruta: string): v is Tramo[] {
   const lista = val.lista(v, ruta);
   if (!lista) return false;
@@ -204,7 +214,9 @@ function idsUnicos(val: Validador, filas: readonly Registro[], ruta: string): Se
   return ids;
 }
 
-function filasObjeto(val: Validador, datos: Registro, tabla: string): Registro[] {
+function filasObjeto(val: Validador, datos: Registro, tabla: string, opcional = false): Registro[] {
+  // Las tablas añadidas en versiones posteriores pueden no estar en copias antiguas.
+  if (opcional && datos[tabla] === undefined) return [];
   const lista = val.lista(datos[tabla], `datos.${tabla}`) ?? [];
   const filas = lista.filter((f, i): f is Registro => val.objeto(f, `${tabla}[${i}]`));
   filas.forEach((f, i) => val.meta(f, `${tabla}[${i}]`));
@@ -253,7 +265,7 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.id(c, 'id', r);
     val.texto(c, 'nombre', r);
     val.entero(c, 'orden', r, 0, 10_000);
-    if (c['clave'] !== undefined) val.enumerado(c, 'clave', r, ['alquiler', 'impuestos']);
+    if (c['clave'] !== undefined) val.enumerado(c, 'clave', r, CLAVES_CATEGORIA);
     val.booleano(c, 'archivada', r);
   });
   const idsCategorias = idsUnicos(val, categorias, 'categorias');
@@ -268,6 +280,8 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.booleano(x, 'netoManual', r);
     val.enumerado(x, 'estado', r, ['Real', 'Previsto']);
     val.texto(x, 'nota', r);
+    if (x['pendienteNomina'] !== undefined) val.booleano(x, 'pendienteNomina', r);
+    datosImportacion(val, x, r);
   });
   idsUnicos(val, ingresos, 'ingresos');
 
@@ -279,6 +293,7 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.enumerado(x, 'concepto', r, CONCEPTOS_EXTRA);
     val.centimos(x, 'importe', r);
     val.texto(x, 'nota', r);
+    datosImportacion(val, x, r);
   });
   idsUnicos(val, extras, 'extras');
 
@@ -292,6 +307,9 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.enumerado(x, 'tipo', r, TIPOS_GASTO);
     val.texto(x, 'nota', r);
     val.texto(x, 'origen', r, true);
+    val.texto(x, 'comercio', r, true);
+    if (x['devolucion'] !== undefined) val.booleano(x, 'devolucion', r);
+    datosImportacion(val, x, r);
   });
   idsUnicos(val, gastos, 'gastos');
 
@@ -301,6 +319,36 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     if (val.periodo(x, r) && x['id'] !== idMes(Number(x['anio']), Number(x['mes']))) val.error(r, 'id de mes incoherente');
     val.booleano(x, 'confirmado', r);
   });
+
+  const reglas = filasObjeto(val, datos, 'reglas', true);
+  reglas.forEach((x, i) => {
+    const r = `reglas[${i}]`;
+    val.id(x, 'id', r);
+    val.id(x, 'categoriaId', r);
+    val.enumerado(x, 'tipo', r, TIPOS_GASTO);
+  });
+  idsUnicos(val, reglas, 'reglas');
+
+  const traspasos = filasObjeto(val, datos, 'traspasos', true);
+  traspasos.forEach((x, i) => {
+    const r = `traspasos[${i}]`;
+    val.id(x, 'id', r);
+    val.periodo(x, r);
+    val.texto(x, 'fecha', r);
+    val.texto(x, 'cuenta', r);
+    val.entero(x, 'importe', r, -MAX_CENTIMOS, MAX_CENTIMOS);
+    val.enumerado(x, 'tipo', r, ['interno', 'hucha', 'divisa']);
+    val.texto(x, 'pareja', r, true);
+  });
+  idsUnicos(val, traspasos, 'traspasos');
+
+  const presupuestos = filasObjeto(val, datos, 'presupuestos', true);
+  presupuestos.forEach((x, i) => {
+    const r = `presupuestos[${i}]`;
+    val.id(x, 'id', r);
+    val.centimos(x, 'importe', r);
+  });
+  idsUnicos(val, presupuestos, 'presupuestos');
 
   const ajustes = datos['ajustes'];
   validarAjustes(val, ajustes);
@@ -321,6 +369,9 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
         extras: extras as unknown as IngresoExtra[],
         gastos: gastos as unknown as Gasto[],
         meses: meses as unknown as MesRegistro[],
+        reglas: reglas as unknown as Regla[],
+        traspasos: traspasos as unknown as Traspaso[],
+        presupuestos: presupuestos as unknown as Presupuesto[],
         ajustes: ajustes as Ajustes,
       },
     },

@@ -128,7 +128,14 @@ export function FormIngreso({ periodo, ingreso, onCerrar }: PropsIngreso) {
       estado,
       nota: nota.trim(),
     };
-    await guardarIngreso(ingreso ? { ...fila, id: ingreso.id } : fila);
+    // Al editar se conservan los datos del importador (fecha, cuenta, huella). Si se han escrito
+    // retención o Seguridad Social, la nómina importada deja de estar pendiente de completar.
+    const completada = ingreso?.pendienteNomina && (s > 0 || r > 0 || b !== ingreso.bruto);
+    await guardarIngreso(
+      ingreso
+        ? { ...ingreso, ...fila, id: ingreso.id, ...(ingreso.pendienteNomina ? { pendienteNomina: !completada } : {}) }
+        : fila,
+    );
     if (!ingreso && repetirHasta > 0) await repetirIngreso(fila, sumarMeses(periodo, repetirHasta));
     onCerrar();
   }
@@ -237,8 +244,9 @@ export function FormGasto({ periodo, gasto, tipoInicial, onCerrar }: PropsGasto)
     const valor = aCentimos(importe).valor;
     if (errImporte || errCategoria || valor === null) return;
     setGuardando(true);
-    const fila = { anio: periodo.anio, mes: periodo.mes, categoriaId, importe: valor, tipo, nota: nota.trim(), ...(gasto?.origen ? { origen: gasto.origen } : {}) };
-    await guardarGasto(gasto ? { ...fila, id: gasto.id } : fila);
+    const fila = { anio: periodo.anio, mes: periodo.mes, categoriaId, importe: valor, tipo, nota: nota.trim() };
+    // Al editar se conservan origen, huella, fecha, cuenta, comercio y si es devolución.
+    await guardarGasto(gasto ? { ...gasto, ...fila, id: gasto.id } : fila);
     onCerrar();
   }
 
@@ -292,7 +300,7 @@ export function FormExtra({ periodo, extra, onCerrar }: PropsExtra) {
     if (errImporte || valor === null) return;
     setGuardando(true);
     const fila = { anio: periodo.anio, mes: periodo.mes, concepto, importe: valor, nota: nota.trim() };
-    await guardarExtra(extra ? { ...fila, id: extra.id } : fila);
+    await guardarExtra(extra ? { ...extra, ...fila, id: extra.id } : fila);
     onCerrar();
   }
 
