@@ -1,8 +1,8 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { consenso, crearPeticion, itemsDudosos, leerRespuesta, type Consenso, type ItemIA, type PropuestaIA } from '../../domain/importacion/ia';
 import type { Decision, MovimientoPropuesto } from '../../domain/importacion/importar';
 import type { Categoria } from '../../domain/modelo';
-import { Aviso } from '../../ui/base';
+import { Aviso, Barra } from '../../ui/base';
 
 interface Props {
   movs: readonly MovimientoPropuesto[];
@@ -74,19 +74,53 @@ export function RevisionIA({ movs, decisiones, categorias, dudoso, onAplicar }: 
   const l1 = useMemo(() => (r1.trim() ? leerRespuesta(r1, items, categorias) : null), [r1, items, categorias]);
   const l2 = useMemo(() => (r2.trim() ? leerRespuesta(r2, items, categorias) : null), [r2, items, categorias]);
   const nombre = (id: string) => categorias.find((c) => c.id === id)?.nombre ?? 'Otros';
+  const [soporteLocal, setSoporteLocal] = useState<{ ok: boolean; motivo?: string } | null>(null);
+  const [local, setLocal] = useState<{ estado: 'parado' | 'cargando' | 'pensando'; texto: string; avance: number }>({ estado: 'parado', texto: '', avance: 0 });
+  const [erroresLocal, setErroresLocal] = useState<string[]>([]);
+  const [verManual, setVerManual] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    void import('../../ia/motorLocal')
+      .then((m) => m.comprobarSoporte())
+      .catch(() => ({ ok: false as const, motivo: 'No se pudo cargar el módulo de IA.' }))
+      .then((s) => vivo && setSoporteLocal(s));
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   if (items.length === 0) return null;
 
-  function aplicar() {
-    if (!l1) return;
-    const vacio = new Map<number, PropuestaIA>();
-    // La opinión de la app: la propuesta del diccionario/reglas, si era segura.
-    const opinion = (it: ItemIA) => {
-      const m = movs.find((x) => x.id === it.ids[0]);
-      const segura = Boolean(m && m.propuesta.confianza >= 0.8 && m.propuesta.motivo !== 'Comercio desconocido');
-      return { categoriaId: segura ? (decisiones.get(it.ids[0] ?? '')?.categoriaId ?? null) : null, segura };
-    };
-    const res = consenso(items, l1.propuestas, l2 ? l2.propuestas : r2.trim() ? vacio : null, opinion, nombre);
+  async function revisarIntegrada() {
+    setErroresLocal([]);
+    setAplicado(null);
+    try {
+      const m = await import('../../ia/motorLocal');
+      const { revisarConIALocal } = await import('../../domain/importacion/iaLocal');
+      setLocal({ estado: 'cargando', texto: 'Cargando la IA…', avance: 0 });
+      const motor = await m.cargarMotor(m.modeloElegido().id, (p) => setLocal({ estado: 'cargando', texto: p.texto, avance: p.progreso }));
+      setLocal({ estado: 'pensando', texto: 'Revisando (1.ª pasada)…', avance: 0 });
+      const { r1: a, r2: b } = await revisarConIALocal(motor, items, categorias, (hechos, total, pasada) =>
+        setLocal({ estado: 'pensando', texto: `Revisando (${pasada}.ª pasada)… ${hechos} de ${total}`, avance: hechos / total }),
+      );
+      setErroresLocal([...new Set([...a.errores, ...b.errores])]);
+      aplicarConsenso(a.propuestas, b.propuestas);
+    } catch (e) {
+      setErroresLocal([e instanceof Error ? e.message : String(e)]);
+    } finally {
+      setLocal({ estado: 'parado', texto: '', avance: 0 });
+    }
+  }
+
+  function opinionApp(it: ItemIA) {
+    const m = movs.find((x) => x.id === it.ids[0]);
+    const segura = Boolean(m && m.propuesta.confianza >= 0.8 && m.propuesta.motivo !== 'Comercio desconocido');
+    return { categoriaId: segura ? (decisiones.get(it.ids[0] ?? '')?.categoriaId ?? null) : null, segura };
+  }
+
+  function aplicarConsenso(a: ReadonlyMap<number, PropuestaIA>, b: ReadonlyMap<number, PropuestaIA> | null) {
+    const res = consenso(items, a, b, opinionApp, nombre);
     const cambios = new Map<string, { categoriaId: string; tipo: Decision['tipoGasto']; nota: string }>();
     for (const c of res) {
       if (!c.categoriaId) continue;
@@ -97,6 +131,12 @@ export function RevisionIA({ movs, decisiones, categorias, dudoso, onAplicar }: 
     onAplicar(cambios, res);
   }
 
+  function aplicar() {
+    if (!l1) return;
+    const vacio = new Map<number, PropuestaIA>();
+    aplicarConsenso(l1.propuestas, l2 ? l2.propuestas : r2.trim() ? vacio : null);
+  }
+
   const coinciden = aplicado?.filter((c) => c.estado === 'coinciden').length ?? 0;
   return (
     <section className="card" aria-labelledby="t-ia">
@@ -104,12 +144,32 @@ export function RevisionIA({ movs, decisiones, categorias, dudoso, onAplicar }: 
       <p className="peq">
         {items.length} {items.length === 1 ? 'comercio dudoso' : 'comercios dudosos'}. Se comparte solo el nombre del comercio, cuántas veces aparece y un rango de importe: sin importes exactos, fechas, cuentas ni nombres de personas. Los Bizum y transferencias a personas no se incluyen.
       </p>
+      {soporteLocal?.ok && (
+        <div style={{ marginTop: 8 }}>
+          <button type="button" className="btn primario bloque" disabled={local.estado !== 'parado'} onClick={() => void revisarIntegrada()}>
+            {local.estado === 'parado' ? 'Revisar con la IA integrada (2 pasadas, sin conexión)' : local.texto}
+          </button>
+          {local.estado !== 'parado' && <Barra valor={Math.round(local.avance * 10_000)} etiqueta="Progreso de la IA" />}
+          <p className="peq muted">Nada sale del dispositivo. La primera vez descarga el modelo (mejor con wifi); también puedes hacerlo en Ajustes → IA integrada.</p>
+        </div>
+      )}
+      {soporteLocal && !soporteLocal.ok && <p className="peq muted">IA integrada no disponible en este dispositivo: {soporteLocal.motivo}</p>}
+      {erroresLocal.length > 0 && (
+        <Aviso titulo="Avisos de la IA integrada">
+          <ul className="peq" style={{ margin: 0, paddingLeft: 18 }}>{erroresLocal.map((e) => <li key={e}>{e}</li>)}</ul>
+        </Aviso>
+      )}
+      <button type="button" className="btn fantasma bloque" aria-expanded={verManual || !soporteLocal?.ok} onClick={() => setVerManual(!verManual)} style={{ marginTop: 8 }}>
+        {verManual || !soporteLocal?.ok ? 'Revisión por copiar y pegar en Claude' : 'O revisar con Claude copiando y pegando'}
+      </button>
+      {(verManual || !soporteLocal?.ok) && (<>
       <p className="peq muted">Para más seguridad, haz las dos revisiones: solo se acepta lo que coincide en ambas y no contradice a la app. Al final siempre confirmas tú.</p>
       <Paso numero={1} peticion={p1} respuesta={r1} onRespuesta={(t) => { setR1(t); setAplicado(null); }} errores={l1?.errores ?? []} leidas={l1?.propuestas.size ?? 0} />
       <Paso numero={2} peticion={p2} respuesta={r2} onRespuesta={(t) => { setR2(t); setAplicado(null); }} errores={l2?.errores ?? []} leidas={l2?.propuestas.size ?? 0} />
       <button type="button" className="btn primario bloque" style={{ marginTop: 12 }} disabled={!l1 || l1.propuestas.size === 0} onClick={aplicar}>
         {r2.trim() ? 'Comparar las dos revisiones y aplicar' : 'Aplicar (solo una revisión)'}
       </button>
+      </>)}
       {aplicado && (
         <>
           <p className="peq" style={{ marginTop: 10 }} aria-live="polite">

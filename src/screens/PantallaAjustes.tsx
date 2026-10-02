@@ -5,6 +5,7 @@ import type { EstadoAlmacenamiento } from '../lib/almacenamiento';
 import { Aviso, Segmentado } from '../ui/base';
 import { Copias } from './ajustes/Copias';
 import { Fiscal } from './ajustes/Fiscal';
+import { IAIntegrada } from './ajustes/IAIntegrada';
 import { Listas } from './ajustes/Listas';
 import { Personales } from './ajustes/Personales';
 import { Importaciones } from './ajustes/Importaciones';
@@ -35,6 +36,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
         <a className="btn primario bloque" href="#/importar">Importar extractos</a>
         <Importaciones />
       </section>
+      <IAIntegrada />
       <Sincronizacion />
       <Copias />
       <Personales />
