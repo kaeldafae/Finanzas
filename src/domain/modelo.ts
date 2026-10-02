@@ -45,6 +45,8 @@ export interface Ingreso extends MetaSync {
   fecha?: string;
   cuenta?: string;
   huella?: string;
+  /** Importación de la que viene (para poder deshacerla). */
+  importacion?: string;
 }
 
 export type ConceptoExtra = 'Propinas' | 'Otro';
@@ -60,6 +62,7 @@ export interface IngresoExtra extends MetaSync {
   fecha?: string;
   cuenta?: string;
   huella?: string;
+  importacion?: string;
 }
 
 export type TipoGasto = 'Fijo' | 'Variable' | 'Extra';
@@ -100,6 +103,7 @@ export interface Gasto extends MetaSync {
   huella?: string;
   /** Devolución de una compra: resta en su categoría. */
   devolucion?: boolean;
+  importacion?: string;
 }
 
 /** Importe con signo de un gasto: las devoluciones restan. */
@@ -130,6 +134,20 @@ export interface Traspaso extends MetaSync {
   tipo: TipoTraspaso;
   /** Huella del movimiento emparejado en la otra cuenta, si se encontró. */
   pareja?: string;
+  importacion?: string;
+}
+
+/** Registro de cada importación: permite deshacerla entera. */
+export interface Importacion extends MetaSync {
+  id: Id;
+  /** ISO */
+  fecha: string;
+  cuentas: string[];
+  movimientos: number;
+  /** Primer y último día de los movimientos importados. */
+  desde: string;
+  hasta: string;
+  deshecha?: boolean;
 }
 
 /** Presupuesto mensual de una categoría. */

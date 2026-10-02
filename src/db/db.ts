@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Ajustes, Categoria, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Pagador, Presupuesto, Regla, Traspaso } from '../domain/modelo';
+import type { Ajustes, Categoria, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Importacion, Pagador, Presupuesto, Regla, Traspaso } from '../domain/modelo';
 import { ajustesPorDefecto, CATEGORIAS_POR_DEFECTO } from '../domain/parametros';
 
 export function nuevoId(): string {
@@ -65,6 +65,7 @@ export class BaseDatos extends Dexie {
   reglas!: EntityTable<Regla, 'id'>;
   traspasos!: EntityTable<Traspaso, 'id'>;
   presupuestos!: EntityTable<Presupuesto, 'id'>;
+  importaciones!: EntityTable<Importacion, 'id'>;
 
   constructor(nombre = 'finanzas-personales') {
     super(nombre);
@@ -123,6 +124,9 @@ export class BaseDatos extends Dexie {
           await categorias.add({ id, nombre: d.nombre, orden: orden++, clave: d.clave, archivada: false, actualizadoEl: 0 });
         }
       });
+
+    // v4: registro de importaciones para poder deshacerlas.
+    this.version(4).stores({ importaciones: 'id, fecha' });
 
     this.on('populate', (tx) => {
       // Identificadores fijos y marca 0: un dispositivo recién instalado coincide con los demás

@@ -7,6 +7,7 @@ import { Copias } from './ajustes/Copias';
 import { Fiscal } from './ajustes/Fiscal';
 import { Listas } from './ajustes/Listas';
 import { Personales } from './ajustes/Personales';
+import { Importaciones } from './ajustes/Importaciones';
 import { Presupuestos } from './ajustes/Presupuestos';
 import { Sincronizacion } from './ajustes/Sincronizacion';
 
@@ -32,6 +33,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
         <h2 id="t-imp">Importar extractos del banco</h2>
         <p className="peq muted">Carga los movimientos de Santander, Revolut u otro banco (CSV o Excel). Se leen en este dispositivo, se clasifican y los revisas antes de guardar.</p>
         <a className="btn primario bloque" href="#/importar">Importar extractos</a>
+        <Importaciones />
       </section>
       <Sincronizacion />
       <Copias />
@@ -71,7 +73,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
           </Aviso>
         )}
         <p className="peq muted">
-          Sin servidores propios, sin cuentas y sin analítica. Los datos solo salen de este dispositivo si exportas una copia o activas la sincronización, y en ese caso viajan cifrados.
+          App de uso doméstico para tus finanzas personales. Sin servidores propios, sin cuentas y sin analítica. Los datos solo salen de este dispositivo si exportas una copia o activas la sincronización (y viajan cifrados), o si copias tú mismo una petición de revisión con IA, que va anonimizada.
         </p>
         <button type="button" className="btn peligro bloque" onClick={() => void borrar()}>Borrar todos los datos</button>
       </section>

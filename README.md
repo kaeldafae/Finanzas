@@ -1,6 +1,6 @@
 # Finanzas mes a mes
 
-App web instalable (PWA) para llevar las finanzas personales **mes a mes** con ingresos irregulares: meses con nómina, meses con prestación del SEPE (paro o ERTE) y meses mezclados. Pensada para un trabajador fijo-discontinuo de hostelería en Illes Balears.
+App web instalable (PWA), **de uso doméstico**, para llevar las finanzas personales **mes a mes** con ingresos irregulares: meses con nómina, meses con prestación del SEPE (paro o ERTE) y meses mezclados. Pensada para un trabajador fijo-discontinuo de hostelería en Illes Balears.
 
 - **Mes**: nóminas y pagos del SEPE por pagador, propinas, gastos fijos/variables/extra, resultado y reparto del sobrante.
 - **Año**: tabla y gráfico de los 12 meses, meses previstos diferenciados, saldo acumulado desde el ahorro inicial.
@@ -78,6 +78,16 @@ Elige los de los dos bancos a la vez para que se emparejen los traspasos entre e
 4. **Lo dudoso pasa por tu revisión:** Amazon, Bizum, transferencias a personas, comercios desconocidos y entradas sin identificar. Si corriges un comercio, el cambio se aplica a todos sus movimientos y puedes guardarlo como regla.
 5. **Al guardar** verás un informe: ingresos, gastos y ahorro por mes, en qué se va el dinero, pagos que se repiten, gastos fuera de lo normal y un presupuesto sugerido.
 6. **Volver a importar un extracto, o uno que se solape, no duplica nada.**
+
+**Revisión con IA, doble y por copiar y pegar.** La app nunca se conecta a ninguna IA. En la revisión genera una petición con los comercios dudosos anonimizados: solo el nombre del comercio, cuántas veces aparece y un rango de importe. No incluye importes exactos, fechas, cuentas, Bizum ni transferencias a personas. Tú la copias en un chat nuevo de Claude y pegas la respuesta.
+
+- Hay una **segunda petición independiente**, con otra redacción y otro orden, para pegar en otro chat nuevo. Solo se acepta lo que **coincide en las dos**, con seguridad suficiente y sin contradecir al diccionario de la app.
+- Lo que no coincide queda para que lo decidas tú.
+- La respuesta se valida antes de usarla: formato, categorías existentes y números de la lista. Si está cortada o mal copiada, no se aplica nada.
+
+**Comprobaciones antes de guardar.** Si la suma de lo clasificado no coincide al céntimo con la de los movimientos, no se guarda nada. Además avisa si un mismo comercio queda en dos categorías, si un importe es raro para su categoría o si hay un "fijo" que no se repite.
+
+**Deshacer.** *Ajustes → Importar extractos → Importaciones anteriores → Deshacer* quita todo lo que creó esa importación, también en tus otros dispositivos, y permite volver a importar el extracto.
 
 **Privacidad.** No se guarda el concepto del banco, ni IBAN, ni números de tarjeta, ni nombres de personas: solo el comercio limpio, la categoría, el importe, la fecha y la cuenta. El aprendizaje funciona en el dispositivo, sin conexión y sin ningún servicio externo.
 

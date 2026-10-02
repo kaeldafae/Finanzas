@@ -11,6 +11,7 @@ import {
   type Ingreso,
   type IngresoExtra,
   type MesRegistro,
+  type Importacion,
   type MetaSync,
   type Pagador,
   type Periodo,
@@ -42,7 +43,7 @@ interface TablaSimple<T> {
 // --- Lectura -----------------------------------------------------------------------------
 
 export async function leerTodo(base: BaseDatos = db): Promise<DatosFinancieros> {
-  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos] = await Promise.all([
+  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones] = await Promise.all([
     base.pagadores.filter(vivo).toArray(),
     base.categorias.orderBy('orden').filter(vivo).toArray(),
     base.ingresos.filter(vivo).toArray(),
@@ -52,8 +53,9 @@ export async function leerTodo(base: BaseDatos = db): Promise<DatosFinancieros> 
     base.reglas.filter(vivo).toArray(),
     base.traspasos.filter(vivo).toArray(),
     base.presupuestos.filter(vivo).toArray(),
+    base.importaciones.orderBy('fecha').reverse().filter(vivo).toArray(),
   ]);
-  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos };
+  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones };
 }
 
 export async function leerAjustes(base: BaseDatos = db): Promise<Ajustes> {
@@ -62,7 +64,7 @@ export async function leerAjustes(base: BaseDatos = db): Promise<Ajustes> {
 
 /** Todo, incluidas las marcas de borrado: es lo que se sincroniza. */
 export async function leerInstantanea(base: BaseDatos = db): Promise<Instantanea> {
-  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, ajustes] = await Promise.all([
+  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, ajustes] = await Promise.all([
     base.pagadores.toArray(),
     base.categorias.toArray(),
     base.ingresos.toArray(),
@@ -72,9 +74,10 @@ export async function leerInstantanea(base: BaseDatos = db): Promise<Instantanea
     base.reglas.toArray(),
     base.traspasos.toArray(),
     base.presupuestos.toArray(),
+    base.importaciones.toArray(),
     leerAjustes(base),
   ]);
-  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, ajustes };
+  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, ajustes };
 }
 
 /**
@@ -287,7 +290,7 @@ export async function moverCategoria(id: string, direccion: -1 | 1, base: BaseDa
 // --- Copias de seguridad -------------------------------------------------------------------
 
 export async function exportarCopia(base: BaseDatos = db, ahora = new Date()): Promise<CopiaSeguridad> {
-  return base.transaction('r', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.ajustes], async () => {
+  return base.transaction('r', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.importaciones, base.ajustes], async () => {
     const [datos, ajustes] = await Promise.all([leerTodo(base), leerAjustes(base)]);
     return crearCopia(datos, ajustes, ahora);
   });
@@ -306,7 +309,7 @@ function idsRepetidos(filas: ReadonlyArray<{ id: string }>): boolean {
  */
 export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db): Promise<void> {
   const d = copia.datos;
-  await base.transaction('rw', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.ajustes], async () => {
+  await base.transaction('rw', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.importaciones, base.ajustes], async () => {
     const marca = marcaTiempo();
     for (const t of TABLAS_SYNC) {
       await base.table<MetaSync & { id: string }, string>(t).toCollection().modify((f) => {
@@ -316,7 +319,7 @@ export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db)
         }
       });
     }
-    for (const filas of [d.pagadores, d.categorias, d.ingresos, d.extras, d.gastos, d.meses, d.reglas, d.traspasos, d.presupuestos]) {
+    for (const filas of [d.pagadores, d.categorias, d.ingresos, d.extras, d.gastos, d.meses, d.reglas, d.traspasos, d.presupuestos, d.importaciones]) {
       if (idsRepetidos(filas)) throw new Error('La copia tiene identificadores repetidos.');
     }
     await base.pagadores.bulkPut(d.pagadores.map(sellar));
@@ -328,6 +331,7 @@ export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db)
     await base.reglas.bulkPut(d.reglas.map(sellar));
     await base.traspasos.bulkPut(d.traspasos.map(sellar));
     await base.presupuestos.bulkPut(d.presupuestos.map(sellar));
+    await base.importaciones.bulkPut(d.importaciones.map(sellar));
     const actuales = await leerAjustes(base);
     await base.ajustes.put({
       ...normalizarAjustes(d.ajustes),
@@ -362,6 +366,7 @@ export async function reglasAprendidas(base: BaseDatos = db): Promise<Map<string
 }
 
 export interface FilasAImportar {
+  importacion: Importacion;
   gastos: Gasto[];
   ingresos: Ingreso[];
   extras: IngresoExtra[];
@@ -376,13 +381,14 @@ export interface FilasAImportar {
  */
 export async function aplicarImportacion(f: FilasAImportar, base: BaseDatos = db): Promise<{ guardados: number }> {
   let guardados = 0;
-  await base.transaction('rw', [base.gastos, base.ingresos, base.extras, base.traspasos, base.reglas, base.meses], async () => {
+  await base.transaction('rw', [base.gastos, base.ingresos, base.extras, base.traspasos, base.reglas, base.meses, base.importaciones], async () => {
     const existentes = await huellasImportadas(base);
     const nuevo = (x: { huella?: string }) => !x.huella || !existentes.has(x.huella);
-    const gastos = f.gastos.filter(nuevo).map(sellar);
-    const ingresos = f.ingresos.filter(nuevo).map(sellar);
-    const extras = f.extras.filter(nuevo).map(sellar);
-    const traspasos = f.traspasos.filter((t) => !existentes.has(t.id)).map(sellar);
+    const id = f.importacion.id;
+    const gastos = f.gastos.filter(nuevo).map((x) => sellar({ ...x, importacion: id }));
+    const ingresos = f.ingresos.filter(nuevo).map((x) => sellar({ ...x, importacion: id }));
+    const extras = f.extras.filter(nuevo).map((x) => sellar({ ...x, importacion: id }));
+    const traspasos = f.traspasos.filter((t) => !existentes.has(t.id)).map((x) => sellar({ ...x, importacion: id }));
     await base.gastos.bulkAdd(gastos);
     await base.ingresos.bulkAdd(ingresos);
     await base.extras.bulkAdd(extras);
@@ -390,9 +396,41 @@ export async function aplicarImportacion(f: FilasAImportar, base: BaseDatos = db
     await base.reglas.bulkPut(f.reglas.map(sellar));
     for (const p of f.meses) await base.meses.put(sellar<MesRegistro>({ id: idMes(p.anio, p.mes), anio: p.anio, mes: p.mes, confirmado: true }));
     guardados = gastos.length + ingresos.length + extras.length + traspasos.length;
+    if (guardados > 0) await base.importaciones.put(sellar({ ...f.importacion, movimientos: guardados }));
   });
   notificarCambio();
   return { guardados };
+}
+
+/**
+ * Deshace una importación entera: marca como borrado todo lo que creó (también en los demás
+ * dispositivos, vía sincronización) y libera sus huellas para poder volver a importar el extracto.
+ * Las reglas aprendidas y los meses confirmados se conservan.
+ */
+export async function deshacerImportacion(id: string, base: BaseDatos = db): Promise<number> {
+  let n = 0;
+  await base.transaction('rw', [base.gastos, base.ingresos, base.extras, base.traspasos, base.importaciones], async () => {
+    const marca = marcaTiempo();
+    const anular = (f: MetaSync & { importacion?: string; huella?: string }) => {
+      if (f.importacion !== id || f.borrado) return;
+      f.borrado = true;
+      f.actualizadoEl = marca;
+      // Sin huella, el mismo movimiento se puede volver a importar.
+      delete f.huella;
+      n++;
+    };
+    await base.gastos.toCollection().modify(anular);
+    await base.ingresos.toCollection().modify(anular);
+    await base.extras.toCollection().modify(anular);
+    // Los traspasos usan la huella como id: se borran del todo para liberarla.
+    const traspasos = await base.traspasos.filter((t) => t.importacion === id).toArray();
+    await base.traspasos.bulkDelete(traspasos.map((t) => t.id));
+    n += traspasos.filter((t) => !t.borrado).length;
+    const reg = await base.importaciones.get(id);
+    if (reg) await base.importaciones.put(sellar({ ...reg, deshecha: true }));
+  });
+  notificarCambio();
+  return n;
 }
 
 export async function guardarPresupuestos(lista: ReadonlyArray<{ categoriaId: string; importe: Centimos }>, base: BaseDatos = db): Promise<void> {

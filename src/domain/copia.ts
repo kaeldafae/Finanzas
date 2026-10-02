@@ -13,6 +13,7 @@ import {
   type MesRegistro,
   type Pagador,
   type ParametrosFiscales,
+  type Importacion,
   type Presupuesto,
   type Regla,
   type Traspaso,
@@ -117,6 +118,7 @@ class Validador {
 }
 
 function datosImportacion(val: Validador, x: Registro, r: string): void {
+  val.texto(x, 'importacion', r, true);
   if (x['fecha'] !== undefined && (typeof x['fecha'] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x['fecha']))) val.error(`${r}.fecha`, 'fecha no válida');
   val.texto(x, 'cuenta', r, true);
   val.texto(x, 'huella', r, true);
@@ -339,6 +341,7 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.entero(x, 'importe', r, -MAX_CENTIMOS, MAX_CENTIMOS);
     val.enumerado(x, 'tipo', r, ['interno', 'hucha', 'divisa']);
     val.texto(x, 'pareja', r, true);
+    val.texto(x, 'importacion', r, true);
   });
   idsUnicos(val, traspasos, 'traspasos');
 
@@ -349,6 +352,19 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.centimos(x, 'importe', r);
   });
   idsUnicos(val, presupuestos, 'presupuestos');
+
+  const importaciones = filasObjeto(val, datos, 'importaciones', true);
+  importaciones.forEach((x, i) => {
+    const r = `importaciones[${i}]`;
+    val.id(x, 'id', r);
+    val.texto(x, 'fecha', r);
+    val.texto(x, 'desde', r);
+    val.texto(x, 'hasta', r);
+    val.entero(x, 'movimientos', r, 0, 1_000_000);
+    if (!Array.isArray(x['cuentas']) || !x['cuentas'].every((c) => typeof c === 'string')) val.error(`${r}.cuentas`, 'debe ser una lista de textos');
+    if (x['deshecha'] !== undefined) val.booleano(x, 'deshecha', r);
+  });
+  idsUnicos(val, importaciones, 'importaciones');
 
   const ajustes = datos['ajustes'];
   validarAjustes(val, ajustes);
@@ -372,6 +388,7 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
         reglas: reglas as unknown as Regla[],
         traspasos: traspasos as unknown as Traspaso[],
         presupuestos: presupuestos as unknown as Presupuesto[],
+        importaciones: importaciones as unknown as Importacion[],
         ajustes: ajustes as Ajustes,
       },
     },

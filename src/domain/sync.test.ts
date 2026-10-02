@@ -8,7 +8,7 @@ const g = (id: string, importe: number, actualizadoEl: number, borrado?: boolean
 });
 
 function inst(parcial: Partial<Instantanea>): Instantanea {
-  return { pagadores: [], categorias: [], ingresos: [], extras: [], gastos: [], meses: [], reglas: [], traspasos: [], presupuestos: [], ajustes: ajustesPorDefecto(), ...parcial };
+  return { pagadores: [], categorias: [], ingresos: [], extras: [], gastos: [], meses: [], reglas: [], traspasos: [], presupuestos: [], importaciones: [], ajustes: ajustesPorDefecto(), ...parcial };
 }
 
 describe('fusión de registros', () => {
