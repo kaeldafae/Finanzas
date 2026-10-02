@@ -21,8 +21,9 @@ const PantallaColchon = lazy(() =>
   })),
 );
 const PantallaRenta = lazy(() => import('./screens/PantallaRenta').then((m) => ({ default: m.PantallaRenta })));
+const PantallaImportar = lazy(() => import('./screens/PantallaImportar').then((m) => ({ default: m.PantallaImportar })));
 
-const RUTAS = ['mes', 'anio', 'colchon', 'renta', 'ajustes'] as const;
+const RUTAS = ['mes', 'anio', 'colchon', 'renta', 'ajustes', 'importar'] as const;
 type Ruta = (typeof RUTAS)[number];
 
 const PESTANAS: ReadonlyArray<{ ruta: Ruta; texto: string; icono: ReactNode }> = [
@@ -118,7 +119,7 @@ export function App() {
   const dias = diasDesde(ajustes.ultimaCopia);
   // Con la sincronización funcionando, los datos ya tienen una copia cifrada fuera del dispositivo.
   const syncActiva = sync.fase === 'al-dia' || sync.fase === 'sincronizando';
-  const recordarCopia = (dias === null || dias > 30) && ruta !== 'ajustes' && !syncActiva;
+  const recordarCopia = (dias === null || dias > 30) && ruta !== 'ajustes' && ruta !== 'importar' && !syncActiva;
   const avisoSync = sync.fase === 'error' && sync.accion !== null && ruta !== 'ajustes';
 
   return (
@@ -161,11 +162,12 @@ export function App() {
           {ruta === 'colchon' && <PantallaColchon />}
           {ruta === 'renta' && <PantallaRenta anio={periodo.anio} onCambioAnio={(anio) => setPeriodo({ ...periodo, anio })} />}
           {ruta === 'ajustes' && <PantallaAjustes almacenamiento={almacenamiento} />}
+          {ruta === 'importar' && <PantallaImportar onTerminar={() => irA('anio')} />}
         </Suspense>
       </main>
       <nav className="nav" aria-label="Secciones">
         {PESTANAS.map((p) => (
-          <a key={p.ruta} href={`#/${p.ruta}`} aria-current={ruta === p.ruta ? 'page' : undefined}>
+          <a key={p.ruta} href={`#/${p.ruta}`} aria-current={ruta === p.ruta || (ruta === 'importar' && p.ruta === 'ajustes') ? 'page' : undefined}>
             {p.icono}
             {p.texto}
           </a>

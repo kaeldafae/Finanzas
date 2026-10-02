@@ -51,6 +51,9 @@ function datos(parcial: Partial<DatosFinancieros>): DatosFinancieros {
     extras: [],
     gastos: [],
     meses: [],
+    reglas: [],
+    traspasos: [],
+    presupuestos: [],
     ...parcial,
   };
 }

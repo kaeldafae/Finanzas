@@ -68,6 +68,11 @@ export function PantallaRenta({ anio, onCambioAnio }: { anio: number; onCambioAn
           {prep.mesesSinRegistrar.map(nombreMes).join(', ')}. La estimación puede cambiar mucho cuando los completes.
         </Aviso>
       )}
+      {prep.pendientesNomina > 0 && (
+        <Aviso titulo={`${prep.pendientesNomina} ${prep.pendientesNomina === 1 ? 'ingreso importado' : 'ingresos importados'} sin datos de la nómina`}>
+          Del banco solo se conoce el neto: se está usando como bruto, sin Seguridad Social ni retención, y la estimación no es fiable. Ábrelos en su mes y complétalos con la nómina o el certificado del SEPE.
+        </Aviso>
+      )}
       {fiscal.ejercicio !== anio && (
         <Aviso titulo="Parámetros de otro ejercicio">
           Los parámetros fiscales son de {fiscal.ejercicio}. Si la normativa de {anio} es distinta, actualízalos en Ajustes.

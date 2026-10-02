@@ -63,7 +63,7 @@ async function descifrarRemota(texto: string, ctx: ContextoSync): Promise<Instan
 
 /** Aplica en local la fusión, en una única transacción. Devuelve cuántas filas ha escrito. */
 async function aplicarEnLocal(base: BaseDatos, remota: Instantanea | null, primeraVez: boolean, ahora: number): Promise<Instantanea> {
-  return base.transaction('rw', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.ajustes], async () => {
+  return base.transaction('rw', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.ajustes], async () => {
     const original = await leerInstantanea(base);
     const local = primeraVez && remota ? unificarCatalogos(original, remota, marcaTiempo()) : original;
     const fusion = purgarBorrados(remota ? fusionar(local, remota) : local, ahora);

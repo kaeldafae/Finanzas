@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Ajustes, Categoria, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Pagador } from '../domain/modelo';
+import type { Ajustes, Categoria, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Pagador, Presupuesto, Regla, Traspaso } from '../domain/modelo';
 import { ajustesPorDefecto, CATEGORIAS_POR_DEFECTO } from '../domain/parametros';
 
 export function nuevoId(): string {
@@ -15,6 +15,10 @@ export function idCategoriaPorDefecto(nombre: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   return `cat-${slug}`;
+}
+
+export function normalizarNombre(n: string): string {
+  return n.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
 let ultimaMarca = 0;
@@ -58,6 +62,9 @@ export class BaseDatos extends Dexie {
   meses!: EntityTable<MesRegistro, 'id'>;
   ajustes!: EntityTable<Ajustes, 'id'>;
   config!: EntityTable<ConfigSync, 'id'>;
+  reglas!: EntityTable<Regla, 'id'>;
+  traspasos!: EntityTable<Traspaso, 'id'>;
+  presupuestos!: EntityTable<Presupuesto, 'id'>;
 
   constructor(nombre = 'finanzas-personales') {
     super(nombre);
@@ -86,6 +93,37 @@ export class BaseDatos extends Dexie {
         }
       });
 
+    // v3: importador de extractos. Tablas nuevas, índice de huella y categorías ampliadas.
+    this.version(3)
+      .stores({
+        ingresos: 'id, [anio+mes], anio, pagadorId, huella',
+        extras: 'id, [anio+mes], anio, huella',
+        gastos: 'id, [anio+mes], anio, categoriaId, origen, huella',
+        reglas: 'id',
+        traspasos: 'id, [anio+mes], anio',
+        presupuestos: 'id',
+      })
+      .upgrade(async (tx) => {
+        const categorias = tx.table<Categoria, string>('categorias');
+        const existentes = await categorias.toArray();
+        const marca = Date.now();
+        // Reconoce las categorías existentes por nombre para que el importador sepa cuál es cuál.
+        for (const c of existentes) {
+          if (c.clave || c.borrado) continue;
+          const defecto = CATEGORIAS_POR_DEFECTO.find((d) => normalizarNombre(d.nombre) === normalizarNombre(c.nombre));
+          if (defecto) await categorias.put({ ...c, clave: defecto.clave, actualizadoEl: marca });
+        }
+        // Añade las que falten, con id fijo y marca 0 (como una instalación nueva).
+        const conClave = new Set((await categorias.toArray()).filter((c) => !c.borrado).map((c) => c.clave));
+        let orden = existentes.length;
+        for (const d of CATEGORIAS_POR_DEFECTO) {
+          if (conClave.has(d.clave)) continue;
+          const id = idCategoriaPorDefecto(d.nombre);
+          if (await categorias.get(id)) continue;
+          await categorias.add({ id, nombre: d.nombre, orden: orden++, clave: d.clave, archivada: false, actualizadoEl: 0 });
+        }
+      });
+
     this.on('populate', (tx) => {
       // Identificadores fijos y marca 0: un dispositivo recién instalado coincide con los demás
       // y nunca pisa categorías o pagadores que ya hayas cambiado en otro.
@@ -96,7 +134,7 @@ export class BaseDatos extends Dexie {
           orden,
           archivada: false,
           actualizadoEl: 0,
-          ...(c.clave ? { clave: c.clave } : {}),
+          clave: c.clave,
         })),
       );
       void tx.table<Pagador, string>('pagadores').bulkAdd([

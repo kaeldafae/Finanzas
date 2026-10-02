@@ -1,6 +1,6 @@
 import type { Centimos } from './dinero';
 import type { ResultadoIRPF } from './irpf';
-import { nombreMes } from './modelo';
+import { importeGasto, nombreMes } from './modelo';
 import type { DatosFinancieros, ResumenMes } from './resumen';
 
 /** Celda neutra: el módulo de escritura decide el formato. Los importes van en euros como número. */
@@ -74,7 +74,7 @@ export function hojasAnio(anio: number, d: DatosFinancieros, meses: readonly Res
       ...d.gastos
         .filter((g) => g.anio === anio)
         .sort((a, b) => a.mes - b.mes)
-        .map((g) => [nombreMes(g.mes), categoria(g.categoriaId), g.tipo, e(g.importe), g.nota]),
+        .map((g) => [nombreMes(g.mes), categoria(g.categoriaId), g.tipo, e(importeGasto(g)), g.comercio ?? g.nota]),
     ],
   };
 
