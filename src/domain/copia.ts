@@ -93,6 +93,12 @@ class Validador {
     return false;
   }
 
+  /** Metadatos de sincronización, opcionales (las copias antiguas no los tienen). */
+  meta(o: Registro, ruta: string): void {
+    if (o['actualizadoEl'] !== undefined) this.entero(o, 'actualizadoEl', ruta, 0, Number.MAX_SAFE_INTEGER);
+    if (o['borrado'] !== undefined) this.booleano(o, 'borrado', ruta);
+  }
+
   periodo(o: Registro, ruta: string): boolean {
     const a = this.entero(o, 'anio', ruta, 2000, 2100);
     const m = this.entero(o, 'mes', ruta, 1, 12);
@@ -182,6 +188,7 @@ function validarAjustes(val: Validador, v: unknown): v is Ajustes {
   validarFiscal(val, v['fiscal'], `${r}.fiscal`);
   if (v['ultimaCopia'] !== null) val.texto(v, 'ultimaCopia', r);
   val.enumerado(v, 'tema', r, ['auto', 'claro', 'oscuro']);
+  val.meta(v, r);
   return true;
 }
 
@@ -199,10 +206,20 @@ function idsUnicos(val: Validador, filas: readonly Registro[], ruta: string): Se
 
 function filasObjeto(val: Validador, datos: Registro, tabla: string): Registro[] {
   const lista = val.lista(datos[tabla], `datos.${tabla}`) ?? [];
-  return lista.filter((f, i): f is Registro => val.objeto(f, `${tabla}[${i}]`));
+  const filas = lista.filter((f, i): f is Registro => val.objeto(f, `${tabla}[${i}]`));
+  filas.forEach((f, i) => val.meta(f, `${tabla}[${i}]`));
+  return filas;
 }
 
-export function validarCopia(entrada: unknown): ResultadoValidacion {
+export interface OpcionesValidacion {
+  /**
+   * Comprueba que cada ingreso y gasto apunte a un pagador o categoría existente.
+   * En la sincronización se desactiva: una referencia rota no debe bloquear la fusión.
+   */
+  referencias: boolean;
+}
+
+export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { referencias: true }): ResultadoValidacion {
   const val = new Validador();
   if (!val.objeto(entrada, 'copia')) return { ok: false, errores: val.errores };
   if (entrada['app'] !== APP_COPIA) {
@@ -246,7 +263,7 @@ export function validarCopia(entrada: unknown): ResultadoValidacion {
     const r = `ingresos[${i}]`;
     val.id(x, 'id', r);
     val.periodo(x, r);
-    if (val.id(x, 'pagadorId', r) && !idsPagadores.has(String(x['pagadorId']))) val.error(r, 'el pagador no existe en la copia');
+    if (val.id(x, 'pagadorId', r) && opciones.referencias && !idsPagadores.has(String(x['pagadorId']))) val.error(r, 'el pagador no existe en la copia');
     for (const k of ['bruto', 'seguridadSocial', 'retencionIRPF', 'neto']) val.centimos(x, k, r);
     val.booleano(x, 'netoManual', r);
     val.enumerado(x, 'estado', r, ['Real', 'Previsto']);
@@ -270,7 +287,7 @@ export function validarCopia(entrada: unknown): ResultadoValidacion {
     const r = `gastos[${i}]`;
     val.id(x, 'id', r);
     val.periodo(x, r);
-    if (val.id(x, 'categoriaId', r) && !idsCategorias.has(String(x['categoriaId']))) val.error(r, 'la categoría no existe en la copia');
+    if (val.id(x, 'categoriaId', r) && opciones.referencias && !idsCategorias.has(String(x['categoriaId']))) val.error(r, 'la categoría no existe en la copia');
     val.centimos(x, 'importe', r);
     val.enumerado(x, 'tipo', r, TIPOS_GASTO);
     val.texto(x, 'nota', r);

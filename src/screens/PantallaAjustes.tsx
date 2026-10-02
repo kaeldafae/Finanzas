@@ -7,6 +7,7 @@ import { Copias } from './ajustes/Copias';
 import { Fiscal } from './ajustes/Fiscal';
 import { Listas } from './ajustes/Listas';
 import { Personales } from './ajustes/Personales';
+import { Sincronizacion } from './ajustes/Sincronizacion';
 
 function formatearBytes(b: number): string {
   if (b < 1024 * 1024) return `${Math.max(1, Math.round(b / 1024))} KB`;
@@ -17,7 +18,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
   const { ajustes } = useEstado();
 
   async function borrar() {
-    if (!window.confirm('¿Borrar TODOS los datos de este dispositivo? Exporta antes una copia si la quieres.')) return;
+    if (!window.confirm('¿Borrar TODOS los datos de este dispositivo? También se desconecta la sincronización (los datos de GitHub no se borran). Exporta antes una copia si la quieres.')) return;
     if (!window.confirm('Última confirmación: se borrará todo y no se puede deshacer.')) return;
     await borrarTodo();
     window.location.reload();
@@ -26,6 +27,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
   return (
     <>
       <h1>Ajustes</h1>
+      <Sincronizacion />
       <Copias />
       <Personales />
       <Listas />
@@ -62,7 +64,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
           </Aviso>
         )}
         <p className="peq muted">
-          Sin servidores, sin cuentas y sin analítica: los datos no salen de este dispositivo salvo cuando tú exportas una copia.
+          Sin servidores propios, sin cuentas y sin analítica. Los datos solo salen de este dispositivo si exportas una copia o activas la sincronización, y en ese caso viajan cifrados.
         </p>
         <button type="button" className="btn peligro bloque" onClick={() => void borrar()}>Borrar todos los datos</button>
       </section>

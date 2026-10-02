@@ -8,7 +8,7 @@ App web instalable (PWA) para llevar las finanzas personales **mes a mes** con i
 - **Renta**: estimación del IRPF (solo rendimientos del trabajo) con desglose, obligación de declarar y qué hacer.
 - **Ajustes**: pagadores, categorías, parámetros fiscales, copias de seguridad y exportación a Excel.
 
-**Privacidad:** no hay servidor, ni cuentas, ni analítica, ni scripts de terceros. Los datos se guardan solo en el dispositivo (IndexedDB). La app publica una Content Security Policy con `connect-src 'self'`: el navegador bloquea cualquier envío de datos a otro dominio.
+**Privacidad:** no hay servidor propio, ni cuentas, ni analítica, ni scripts de terceros. Los datos se guardan en el dispositivo (IndexedDB). Si activas la sincronización, viajan **cifrados de extremo a extremo** a un repositorio privado de tu GitHub. La Content Security Policy solo permite conectar con la propia app y con `api.github.com`: el navegador bloquea cualquier otro destino.
 
 ---
 
@@ -24,6 +24,35 @@ App web instalable (PWA) para llevar las finanzas personales **mes a mes** con i
 ## Instalar en Android
 
 Abre la dirección en Chrome y pulsa **Instalar app** (o menú ⋮ → *Añadir a pantalla de inicio*).
+
+---
+
+## Sincronizar móvil y ordenador (gratis y cifrado)
+
+Los datos se guardan en un archivo cifrado dentro de un repositorio **privado** de tu GitHub. GitHub solo ve datos ilegibles: se cifran en tu dispositivo (AES-256-GCM, con una clave derivada de tu contraseña mediante PBKDF2-SHA256 con 600.000 iteraciones) y la contraseña nunca sale de él.
+
+### Preparación (una sola vez)
+
+1. En GitHub crea un repositorio **privado** llamado, por ejemplo, `finanzas-datos` (marca *Add a README file*).
+2. Crea un token en *Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token*:
+   - *Repository access*: **Only select repositories** → `finanzas-datos`.
+   - *Permissions → Repository permissions → Contents*: **Read and write**. Nada más.
+3. Elige una contraseña de cifrado (mínimo 10 caracteres; mejor una frase). Guárdala junto al token en el llavero o en un gestor de contraseñas.
+
+### En cada dispositivo
+
+*Ajustes → Sincronización*: escribe `usuario/finanzas-datos`, pega el token y pulsa **Comprobar**. Después escribe la contraseña de cifrado y pulsa **Conectar**. En el segundo dispositivo, la contraseña tiene que ser la misma; si no coincide, la app la rechaza sin tocar nada.
+
+### Cómo funciona
+
+- Se sincroniza al abrir la app, unos 3 segundos después de cada cambio, al recuperar la conexión y cada 2 minutos con la app abierta.
+- Sin conexión sigue funcionando todo: los cambios se envían al volver la red.
+- Si editas lo mismo en los dos dispositivos, gana la última edición de ese registro. Los borrados se propagan y no "resucitan".
+- El tema claro u oscuro y la fecha de la última copia son de cada dispositivo.
+- Al conectar un dispositivo que ya tenía datos, primero se descarga una copia JSON de seguridad. Después se combinan los datos y se unifican las categorías y pagadores que tienen el mismo nombre.
+- Si el token caduca o GitHub lo rechaza, la app avisa arriba y en *Ajustes → Sincronización* puedes pegar uno nuevo.
+- **Si pierdes la contraseña**, los datos de GitHub no se pueden recuperar. Los de cada dispositivo y tus copias JSON siguen siendo tuyos.
+- *Desconectar* deja de sincronizar ese dispositivo sin borrar nada.
 
 ---
 
@@ -89,6 +118,9 @@ src/
     resumen.ts     resumen mensual, serie anual, simulación del colchón
     renta.ts       agrega los datos de un año para el IRPF
     copia.ts       esquema y validación de las copias JSON
+    sync.ts        fusión entre dispositivos (última edición gana, borrados)
+    cifrado.ts     AES-256-GCM + PBKDF2 con Web Crypto
+  sync/       cliente de GitHub, motor de sincronización y orquestación
     parametros.ts  valores por defecto (editables desde Ajustes)
   db/         Dexie (IndexedDB): esquema versionado y operaciones atómicas
   screens/    Pantallas
@@ -98,7 +130,8 @@ src/
 Reglas de diseño:
 
 - **Dinero en céntimos enteros.** Ninguna operación en euros con decimales; los porcentajes se aplican con un único redondeo comercial al céntimo.
-- **Esquema versionado.** Para añadir la pestaña de inversiones se crea `version(2)` en `src/db/db.ts` con las tablas nuevas (aportaciones y operaciones); Dexie migra los datos existentes. Las copias JSON llevan `schemaVersion`.
+- **Sincronización.** Toda escritura fecha la fila (`actualizadoEl`) y los borrados se marcan (`borrado: true`). Las marcas de borrado se eliminan a los 90 días.
+- **Esquema versionado.** La v2 añadió la sincronización. Para añadir la pestaña de inversiones se crea `version(3)` en `src/db/db.ts` con las tablas nuevas (aportaciones y operaciones); Dexie migra los datos existentes. Las copias JSON llevan `schemaVersion`.
 - **Navegación por hash** (`#/renta`): GitHub Pages no reescribe rutas, así que recargar nunca da 404.
 
 ### Despliegue en GitHub Pages
