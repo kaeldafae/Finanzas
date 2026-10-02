@@ -92,6 +92,30 @@ interface ArchivoCargado {
   huella?: string;
   /** Si el documento es una nómina, sus datos (no se importa como extracto). */
   nomina?: DatosNomina;
+  /** Sin texto (foto o PDF escaneado): se puede leer con OCR en el dispositivo si lo pides. */
+  ocrPendiente?: { pdf: ArrayBuffer } | { imagen: Blob };
+}
+
+function esImagen(f: File): boolean {
+  return f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name);
+}
+
+/** OCR en el dispositivo y, después, el mismo lector y las mismas comprobaciones que un PDF con texto. */
+async function leerConOcr(a: ArchivoCargado, alProgresar: (t: string) => void): Promise<ArchivoCargado> {
+  const pendiente = a.ocrPendiente;
+  if (!pendiente) return a;
+  const base: ArchivoCargado = { ...a, ocrPendiente: undefined, error: null, diagnostico: null };
+  try {
+    const { paginasComoImagen, reconocer } = await import('../lib/ocr');
+    alProgresar('Preparando el reconocimiento de texto…');
+    const imagenes = 'pdf' in pendiente ? await paginasComoImagen(pendiente.pdf.slice(0)) : [pendiente.imagen];
+    const textos = await reconocer(imagenes, (p) => alProgresar(`${Math.round(p.progreso * 100)} % · ${p.texto}`));
+    if (textos.length === 0) return { ...base, error: 'El reconocimiento de texto no ha encontrado nada legible en la imagen.' };
+    const r = interpretarPdf(base, textos, imagenes.length);
+    return r.extracto ? { ...r, extracto: { ...r.extracto, lectura: { ...r.extracto.lectura, deteccion: 'ocr' } } } : r;
+  } catch (e) {
+    return { ...base, error: `No se pudo hacer el reconocimiento de texto: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 /** SHA-256 del archivo, abreviado a 16 caracteres. Identifica el archivo sin guardar su contenido. */
@@ -232,9 +256,7 @@ async function cargarPdf(nombre: string, datos: ArrayBuffer, contrasena?: string
     const { leerTextoPdf } = await import('../lib/leerPdf');
     // pdf.js transfiere el buffer al worker: se pasa una copia para poder reintentar con contraseña.
     const { textos, paginas } = await leerTextoPdf(datos.slice(0), contrasena);
-    if (textos.length === 0) {
-      return { ...vacio, error: 'Este PDF no tiene texto (parece escaneado o una foto). Descarga el extracto desde la app o la web del banco: esos PDF sí llevan texto.' };
-    }
+    if (textos.length === 0) return { ...vacio, huella: await huellaArchivo(datos), ocrPendiente: { pdf: datos } };
     return interpretarPdf({ ...vacio, huella: await huellaArchivo(datos) }, textos, paginas);
   } catch (e) {
     if (e instanceof PdfConContrasena) return { ...vacio, pdfProtegido: { datos, incorrecta: e.incorrecta } };
@@ -348,7 +370,7 @@ function MapeoManual({ archivo, onListo }: { archivo: ArchivoCargado; onListo: (
   );
 }
 
-function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasena }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void; onContrasena: (c: string) => void }) {
+function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasena, onOcr }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void; onContrasena: (c: string) => void; onOcr: () => void }) {
   const ex = a.extracto;
   return (
     <div className="card" style={{ background: 'var(--surface-2)' }}>
@@ -359,7 +381,14 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasen
       {a.error && <Aviso>{a.error}</Aviso>}
       {a.pdfProtegido && <ContrasenaPdf a={a} onAbrir={onContrasena} />}
       {a.nomina && <NominaArchivo n={a.nomina} />}
-      {!a.error && !a.pdfProtegido && !a.nomina && !ex && (
+      {a.ocrPendiente && (
+        <div>
+          <p className="peq">{'pdf' in a.ocrPendiente ? 'Este PDF no lleva texto (está escaneado o es una foto).' : 'Es una imagen.'} Se puede leer con reconocimiento de texto (OCR) en este dispositivo: la imagen no sale de aquí. La primera vez se descargan unos 6 MB.</p>
+          <p className="peq muted">Si un número se reconoce mal, el saldo no cuadrará y no se importará nada. Con buena luz y la imagen recta funciona mejor; un PDF descargado del banco es siempre más fiable.</p>
+          <button type="button" className="btn primario bloque" onClick={onOcr}>Leer con OCR</button>
+        </div>
+      )}
+      {!a.error && !a.pdfProtegido && !a.nomina && !a.ocrPendiente && !ex && (
         <>
           <Aviso titulo="No he podido leer los movimientos con seguridad">
             No encuentro una tabla de movimientos que pueda comprobar con el saldo. No se importa nada para no meter datos erróneos. Prueba a descargar el extracto otra vez (CSV, Excel o PDF).
@@ -622,6 +651,11 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           nuevos.push(await cargarPdf(f.name, await f.arrayBuffer()));
           continue;
         }
+        if (esImagen(f)) {
+          if (f.size > MAX_PDF) throw new Error('La imagen es demasiado grande (máximo 10 MB).');
+          nuevos.push({ ...base, filas: [], extracto: null, error: null, candidatas: null, diagnostico: null, huella: await huellaArchivo(await f.arrayBuffer()), ocrPendiente: { imagen: f } });
+          continue;
+        }
         const filas = await leerArchivoBanco(f);
         const lectura = leerExtracto(filas);
         nuevos.push({
@@ -836,11 +870,11 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Cómo descargar los extractos</summary>
           <p><strong>Revolut:</strong> en la app, cuenta en euros → ⋯ → Extracto → formato PDF (o Excel/CSV) → elige el periodo.</p>
           <p><strong>Santander:</strong> banca online → Cuentas → Movimientos → elige las fechas → Descargar → Excel.</p>
-          <p>Sirven PDF con texto (los que descargas del banco). Un PDF escaneado o una foto no se puede leer.</p>
+          <p>Lo más fiable es el PDF que descargas del banco. Un PDF escaneado o una foto se puede leer con OCR en el dispositivo.</p>
         </details>
-        <button type="button" className="btn primario bloque" disabled={ocupado !== null} onClick={() => entrada.current?.click()}>{ocupado ?? 'Elegir PDF, Excel o CSV'}</button>
+        <button type="button" className="btn primario bloque" disabled={ocupado !== null} onClick={() => entrada.current?.click()}>{ocupado ?? 'Elegir PDF, Excel, CSV o foto'}</button>
         <PegarTexto onLeido={(a) => setArchivos((l) => [...l, a])} />
-        <input ref={entrada} type="file" multiple accept=".pdf,.csv,.xlsx,.txt,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
+        <input ref={entrada} type="file" multiple accept=".pdf,.csv,.xlsx,.txt,.jpg,.jpeg,.png,.webp,image/*,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
       </section>
 
       {archivos.map((a, i) => (
@@ -851,6 +885,13 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           onAceptar={(v) => actualizar(i, (x) => ({ ...x, aceptarSinCuadre: v }))}
           onQuitar={() => setArchivos((l) => l.filter((_, j) => j !== i))}
           onMapeo={(m) => actualizar(i, (x) => ({ ...x, extracto: extractoDe(extraerMovimientos(x.filas, m, 'manual')) }))}
+          onOcr={() => {
+            setOcupado('Reconociendo texto…');
+            void leerConOcr(a, (t) => setOcupado(t)).then((nuevo) => {
+              actualizar(i, () => nuevo);
+              setOcupado(null);
+            });
+          }}
           onContrasena={(c) => {
             const protegido = a.pdfProtegido;
             if (!protegido) return;

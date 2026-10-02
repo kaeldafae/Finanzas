@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -39,11 +41,43 @@ function csp(): Plugin {
   };
 }
 
+/**
+ * OCR bajo demanda (Tesseract.js): el worker, el motor WASM y el idioma español se sirven desde la propia
+ * app, nunca desde un CDN. No se precargan: se descargan la primera vez que se usa el OCR (~6 MB).
+ */
+const requerir = createRequire(import.meta.url);
+const OCR_DIR = 'ocr/7.0.0';
+const ARCHIVOS_OCR: Record<string, string> = {
+  'worker.min.js': 'tesseract.js/dist/worker.min.js',
+  'tesseract-core-lstm.wasm.js': 'tesseract.js-core/tesseract-core-lstm.wasm.js',
+  'tesseract-core-simd-lstm.wasm.js': 'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
+  'tesseract-core-relaxedsimd-lstm.wasm.js': 'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js',
+  'spa.traineddata.gz': '@tesseract.js-data/spa/4.0.0_best_int/spa.traineddata.gz',
+};
+function ocr(): Plugin {
+  const leer = (nombre: string) => readFileSync(requerir.resolve(ARCHIVOS_OCR[nombre] ?? ''));
+  return {
+    name: 'ocr-local',
+    configureServer(servidor) {
+      servidor.middlewares.use((req, res, next) => {
+        const m = new RegExp(`/${OCR_DIR}/([\\w.-]+)$`).exec(req.url ?? '');
+        if (!m?.[1] || !ARCHIVOS_OCR[m[1]]) return next();
+        res.setHeader('Content-Type', m[1].endsWith('.js') ? 'text/javascript' : 'application/octet-stream');
+        res.end(leer(m[1]));
+      });
+    },
+    generateBundle() {
+      for (const nombre of Object.keys(ARCHIVOS_OCR)) this.emitFile({ type: 'asset', fileName: `${OCR_DIR}/${nombre}`, source: leer(nombre) });
+    },
+  };
+}
+
 export default defineConfig({
   base,
   plugins: [
     react(),
     csp(),
+    ocr(),
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
@@ -72,12 +106,17 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         // El motor de la IA integrada (~6 MB por archivo) no se precarga al instalar: solo lo baja
         // quien la usa, y desde ese momento queda guardado para funcionar sin conexión.
-        globIgnores: ['**/ia-motor-*.js', '**/ia-worker-*.js'],
+        globIgnores: ['**/ia-motor-*.js', '**/ia-worker-*.js', 'ocr/**'],
         runtimeCaching: [
           {
             urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/assets\/ia-(motor|worker)-[\w-]+\.js$/.test(url.pathname),
             handler: 'CacheFirst',
             options: { cacheName: 'motor-ia', expiration: { maxEntries: 6 } },
+          },
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.includes('/ocr/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'ocr', expiration: { maxEntries: 10 } },
           },
         ],
         navigateFallback: 'index.html',
