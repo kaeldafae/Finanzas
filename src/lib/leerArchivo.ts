@@ -20,14 +20,11 @@ function decodificar(buffer: ArrayBuffer): string {
 
 /**
  * Lee el extracto en el propio dispositivo. Nada se sube a ningún sitio.
- * Admite CSV (Revolut, la mayoría de bancos) y Excel .xlsx.
+ * Admite CSV (Revolut, la mayoría de bancos) y Excel .xlsx. Los PDF se leen aparte (leerPdf.ts).
  */
 export async function leerArchivoBanco(archivo: File): Promise<Celda[][]> {
   if (archivo.size > MAX_BYTES) throw new Error('El archivo es demasiado grande para ser un extracto (máximo 10 MB).');
   const nombre = archivo.name.toLowerCase();
-  if (nombre.endsWith('.pdf')) {
-    throw new Error('Los PDF no se pueden leer con fiabilidad. Descarga los movimientos en Excel o CSV desde la banca online.');
-  }
   if (nombre.endsWith('.xls')) {
     throw new Error('Es un Excel antiguo (.xls). Descárgalo en CSV, o ábrelo y guárdalo como .xlsx.');
   }

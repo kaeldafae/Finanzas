@@ -22,3 +22,11 @@ export async function huellas(cuenta: string, movimientos: readonly MovimientoBr
   }
   return out;
 }
+
+/**
+ * Clave sin el texto del concepto: misma cuenta, mismo día y mismo importe. Sirve para reconocer un movimiento
+ * ya importado desde otro formato (el PDF y el CSV de un banco escriben el concepto de forma distinta).
+ */
+export function claveSuelta(cuenta: string, fecha: string, importe: number): string {
+  return `${normalizarTexto(cuenta)}|${fecha}|${importe}`;
+}

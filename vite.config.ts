@@ -98,6 +98,11 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    rolldownOptions: { output: { entryFileNames: 'assets/ia-worker-[hash].js' } },
+    rolldownOptions: {
+      output: {
+        // El worker de pdf.js se precarga (importar PDF sin conexión); el de la IA, no (pesa 6 MB).
+        entryFileNames: (chunk) => (chunk.facadeModuleId?.includes('pdfjs-dist') ? 'assets/pdf-worker-[hash].js' : 'assets/ia-worker-[hash].js'),
+      },
+    },
   },
 });

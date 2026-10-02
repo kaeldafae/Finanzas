@@ -33,13 +33,20 @@ function titulo(t: string): string {
   return t.toLowerCase().replace(/(^|[\s/.-])(\p{L})/gu, (_m, sep: string, l: string) => sep + l.toUpperCase());
 }
 
-export function limpiarConcepto(concepto: string, importe: Centimos): ConceptoLimpio {
+/** Revolut describe las transferencias con el nombre de la otra persona: "To Juan Pérez", "Pago de Ana". */
+const PERSONA_REVOLUT = /^(to|para|transfer to|transferencia a|enviado a|from|payment from|transfer from|transferencia de|recibido de|de parte de)\s/;
+
+export function limpiarConcepto(concepto: string, importe: Centimos, tipoBanco: string | null = null): ConceptoLimpio {
   const n = normalizarTexto(concepto);
   if (/\bbizum\b/.test(n)) {
     // Sin el texto original: lleva el nombre de la otra persona.
     return { comercio: importe < 0 ? 'Bizum enviado' : 'Bizum recibido', clave: '', busqueda: '', persona: 'bizum' };
   }
-  const esTransferencia = /\b(transferencia|transf\.?|trf\.?|transfer)\b/.test(n) && !/\b(revolut|nomina|sepe|prestacion)\b/.test(n);
+  const aHucha = /\b(pocket|savings|vault|hucha)\b/.test(n);
+  const esTransferencia =
+    (/\b(transferencia|transf\.?|trf\.?|transfer)\b/.test(n) || tipoBanco === 'TRANSFER' || PERSONA_REVOLUT.test(n) || (importe > 0 && /^pago de\s/.test(n))) &&
+    !/\b(revolut|nomina|sepe|prestacion)\b/.test(n) &&
+    !aHucha;
 
   let t = concepto;
   for (const p of PREFIJOS) t = t.replace(p, '');
@@ -122,7 +129,7 @@ function propuesta(destino: Destino, limpio: ConceptoLimpio, confianza: number, 
 }
 
 export function clasificar(m: MovimientoBruto, reglas: ReadonlyMap<string, ReglaAprendida>): Propuesta {
-  const limpio = limpiarConcepto(m.concepto, m.importe);
+  const limpio = limpiarConcepto(m.concepto, m.importe, m.tipoBanco);
   const n = normalizarTexto(m.concepto);
   const tipo = m.tipoBanco ?? '';
   const producto = normalizarTexto(m.producto ?? '');
@@ -130,7 +137,7 @@ export function clasificar(m: MovimientoBruto, reglas: ReadonlyMap<string, Regla
 
   // 1. Lo que dice el propio banco (Revolut indica el tipo de operación).
   if (tipo === 'EXCHANGE') return propuesta('divisa', limpio, 1, 'Cambio de divisa');
-  if (/savings|ahorro|pocket|hucha|vault/.test(producto) || /\b(to|from) (pocket|savings|vault)\b|\bhucha\b|\bvault\b/.test(n)) {
+  if (/savings|ahorro|pocket|hucha|vault/.test(producto) || /\b(pocket|vault|hucha)\b|\b(to|from) savings\b/.test(n)) {
     return propuesta('hucha', limpio, 0.95, 'Movimiento de hucha o ahorro');
   }
   if (tipo === 'TOPUP') return propuesta('interno', limpio, 0.95, 'Recarga desde otra cuenta tuya');

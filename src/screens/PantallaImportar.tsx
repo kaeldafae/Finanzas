@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { formatearEuros } from '../domain/dinero';
 import { ejemplosDeEntrenamiento, entrenar } from '../domain/importacion/aprendizaje';
 import { UMBRAL_REVISION } from '../domain/importacion/clasificar';
 import { cuadrar } from '../domain/importacion/cuadre';
-import { cabecerasCandidatas, extraerMovimientos, leerExtracto, type Mapeo } from '../domain/importacion/formatos';
+import { cabecerasCandidatas, diagnosticoAnonimo, extraerMovimientos, leerExtracto, type LecturaExtracto, type Mapeo } from '../domain/importacion/formatos';
+import { leerPdfExtracto, type ControlResumen } from '../domain/importacion/pdf';
 import {
   construirFilas,
   informe,
@@ -19,10 +20,11 @@ import { deducirDecimal, type Celda } from '../domain/importacion/texto';
 import { analizarCoherencia, comprobarConservacion } from '../domain/importacion/analisis';
 import { RevisionIA } from './importar/RevisionIA';
 import { CONCEPTOS_EXTRA, idMes, nombreMes, TIPOS_GASTO, type Categoria, type ClaveCategoria, type ConceptoExtra, type Pagador, type TipoGasto } from '../domain/modelo';
-import { aplicarImportacion, guardarPresupuestos, huellasImportadas, reglasAprendidas } from '../db/operaciones';
+import { aplicarImportacion, clavesImportadas, guardarPresupuestos, huellasImportadas, reglasAprendidas } from '../db/operaciones';
 import { nuevoId } from '../db/db';
 import { useEstado } from '../estado';
 import { leerArchivoBanco } from '../lib/leerArchivo';
+import { PdfConContrasena } from '../lib/leerPdf';
 import { Aviso, CampoTexto, Importe, Selector } from '../ui/base';
 
 // --- Utilidades ------------------------------------------------------------------------------
@@ -41,7 +43,7 @@ function pagadorPorTipo(tipo: Pagador['tipo'] | null, pagadores: readonly Pagado
 
 function decisionInicial(m: MovimientoPropuesto, categorias: readonly Categoria[], pagadores: readonly Pagador[]): Decision {
   return {
-    incluir: !m.duplicado,
+    incluir: !m.duplicado && !m.posibleDuplicado,
     destino: m.propuesta.destino,
     categoriaId: m.propuesta.categoriaId ?? categoriaPorClave(m.propuesta.categoria ?? 'otros', categorias),
     tipoGasto: m.propuesta.tipoGasto,
@@ -74,9 +76,101 @@ interface ArchivoCargado {
   filas: Celda[][];
   extracto: ExtractoLeido | null;
   error: string | null;
-  /** Mapeo manual cuando no se reconocen las columnas. */
+  /** Mapeo manual (solo en opciones avanzadas) cuando no se reconocen las columnas. */
   candidatas: { fila: number; cabeceras: string[] } | null;
   aceptarSinCuadre: boolean;
+  /** PDF: comprobación contra el resumen del propio extracto. */
+  control: ControlResumen | null;
+  /** Estructura del archivo sin datos, para pedir ayuda si no se reconoce. */
+  diagnostico: string | null;
+  /** PDF protegido: se guarda el archivo para reintentarlo con la contraseña. */
+  pdfProtegido: { datos: ArrayBuffer; incorrecta: boolean } | null;
+}
+
+function extractoDe(lectura: LecturaExtracto): ExtractoLeido {
+  return { cuenta: lectura.banco, lectura, cuadre: cuadrar(lectura.movimientos) };
+}
+
+function esPdf(f: File): boolean {
+  return f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
+}
+
+const MAX_PDF = 10 * 1024 * 1024;
+
+/** Lee un PDF en el dispositivo. */
+async function cargarPdf(nombre: string, datos: ArrayBuffer, contrasena?: string): Promise<ArchivoCargado> {
+  const vacio: ArchivoCargado = { nombre, filas: [], extracto: null, error: null, candidatas: null, aceptarSinCuadre: false, control: null, diagnostico: null, pdfProtegido: null };
+  try {
+    const { leerTextoPdf } = await import('../lib/leerPdf');
+    // pdf.js transfiere el buffer al worker: se pasa una copia para poder reintentar con contraseña.
+    const { textos, paginas } = await leerTextoPdf(datos.slice(0), contrasena);
+    if (textos.length === 0) {
+      return { ...vacio, error: 'Este PDF no tiene texto (parece escaneado o una foto). Descarga el extracto desde la app o la web del banco: esos PDF sí llevan texto.' };
+    }
+    const r = leerPdfExtracto(textos, paginas);
+    if (!r.lectura) return { ...vacio, diagnostico: r.diagnostico };
+    return { ...vacio, extracto: extractoDe(r.lectura), control: r.control, diagnostico: r.diagnostico };
+  } catch (e) {
+    if (e instanceof PdfConContrasena) return { ...vacio, pdfProtegido: { datos, incorrecta: e.incorrecta } };
+    return { ...vacio, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function ContrasenaPdf({ a, onAbrir }: { a: ArchivoCargado; onAbrir: (c: string) => void }) {
+  const [clave, setClave] = useState('');
+  const id = useId();
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (clave) onAbrir(clave);
+      }}
+    >
+      <p className="peq">{a.pdfProtegido?.incorrecta ? 'La contraseña no es correcta. Prueba otra vez:' : 'Este PDF tiene contraseña. Escríbela para abrirlo (solo se usa aquí, no se guarda):'}</p>
+      <div className="campo">
+        <label htmlFor={id}>Contraseña del PDF</label>
+        <input id={id} type="password" autoComplete="off" value={clave} onChange={(e) => setClave(e.target.value)} />
+      </div>
+      <button type="submit" className="btn primario bloque" disabled={!clave}>Abrir PDF</button>
+    </form>
+  );
+}
+
+function Diagnostico({ texto }: { texto: string }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <details className="peq">
+      <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Diagnóstico (sin tus datos)</summary>
+      <p className="muted">Solo describe la estructura del archivo: no incluye importes, conceptos ni fechas. Puedes copiarlo para pedir que se adapte el lector a tu banco.</p>
+      <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem' }}>{texto}</pre>
+      <button type="button" className="btn compacto" onClick={() => void navigator.clipboard.writeText(texto).then(() => setCopiado(true), () => setCopiado(false))}>
+        {copiado ? 'Copiado ✓' : 'Copiar diagnóstico'}
+      </button>
+    </details>
+  );
+}
+
+function textoDeteccion(ex: ExtractoLeido): string | null {
+  switch (ex.lectura.deteccion) {
+    case 'pdf':
+      return 'Leído del PDF: columnas localizadas automáticamente.';
+    case 'contenido':
+      return ex.cuadre.estado === 'ok'
+        ? 'Columnas detectadas automáticamente por su contenido y comprobadas con el saldo.'
+        : 'Columnas detectadas automáticamente por su contenido.';
+    case 'manual':
+      return 'Columnas elegidas a mano.';
+    case 'cabeceras':
+      return null;
+  }
+}
+
+/** Un archivo está listo si se ha comprobado al céntimo (saldos o resumen) o si aceptas importarlo sin comprobar. */
+function estaListo(a: ArchivoCargado): boolean {
+  const ex = a.extracto;
+  if (!ex || a.control?.ok === false) return false;
+  if (ex.cuadre.estado === 'ok') return true;
+  return ex.cuadre.estado === 'sin-saldo' && (a.control?.ok === true || a.aceptarSinCuadre);
 }
 
 function MapeoManual({ archivo, onListo }: { archivo: ArchivoCargado; onListo: (m: Mapeo) => void }) {
@@ -122,7 +216,7 @@ function MapeoManual({ archivo, onListo }: { archivo: ArchivoCargado; onListo: (
   );
 }
 
-function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void }) {
+function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasena }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void; onContrasena: (c: string) => void }) {
   const ex = a.extracto;
   return (
     <div className="card" style={{ background: 'var(--surface-2)' }}>
@@ -131,18 +225,44 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo }: { a: Arch
         <button type="button" className="btn compacto" onClick={onQuitar} aria-label={`Quitar ${a.nombre}`}>Quitar</button>
       </div>
       {a.error && <Aviso>{a.error}</Aviso>}
-      {!a.error && !ex && <MapeoManual archivo={a} onListo={onMapeo} />}
+      {a.pdfProtegido && <ContrasenaPdf a={a} onAbrir={onContrasena} />}
+      {!a.error && !a.pdfProtegido && !ex && (
+        <>
+          <Aviso titulo="No he podido leer los movimientos con seguridad">
+            No encuentro una tabla de movimientos que pueda comprobar con el saldo. No se importa nada para no meter datos erróneos. Prueba a descargar el extracto otra vez (CSV, Excel o PDF).
+          </Aviso>
+          {a.diagnostico && <Diagnostico texto={a.diagnostico} />}
+          {a.filas.length > 0 && (
+            <details className="peq">
+              <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Opciones avanzadas</summary>
+              <MapeoManual archivo={a} onListo={onMapeo} />
+            </details>
+          )}
+        </>
+      )}
       {ex && (
         <>
           <CampoTexto etiqueta="Nombre de la cuenta" valor={ex.cuenta} onCambio={onCuenta} ayuda="Usa siempre el mismo nombre para cada banco: así no se duplica nada al volver a importar." maxLength={30} />
           <p className="peq">
             {ex.lectura.movimientos.length} movimientos · del {ex.cuadre.ordenados[0]?.fecha ?? '—'} al {ex.cuadre.ordenados[ex.cuadre.ordenados.length - 1]?.fecha ?? '—'}
-            {ex.lectura.descartados.length > 0 && ` · ${ex.lectura.descartados.length} descartados (pendientes, anulados u otra divisa)`}
+            {ex.lectura.descartados.length > 0 && ` · ${ex.lectura.descartados.length} descartados (pendientes, anulados, huchas u otra divisa)`}
           </p>
+          {textoDeteccion(ex) && <p className="peq muted">{textoDeteccion(ex)}</p>}
+          {a.control?.ok === true && (
+            <p className="peq pos">
+              ✓ Coincide con el resumen del extracto: entradas {formatearEuros(a.control.entradas)}, salidas {formatearEuros(a.control.salidas)}.
+            </p>
+          )}
+          {a.control?.ok === false && (
+            <Aviso titulo="No coincide con el resumen del propio extracto">
+              El banco dice entradas {formatearEuros(a.control.resumen.entradas)} y salidas {formatearEuros(a.control.resumen.salidas)}; lo leído suma {formatearEuros(a.control.entradas)} y {formatearEuros(a.control.salidas)}. No se importa para no dejar movimientos fuera.
+              {a.diagnostico && <Diagnostico texto={a.diagnostico} />}
+            </Aviso>
+          )}
           {ex.cuadre.estado === 'ok' && (
             <p className="peq pos">✓ Cuadra con los saldos del banco: {ex.cuadre.comprobados} comprobaciones. Saldo final {formatearEuros(ex.cuadre.saldoFinal ?? 0)}.</p>
           )}
-          {ex.cuadre.estado === 'sin-saldo' && (
+          {ex.cuadre.estado === 'sin-saldo' && a.control?.ok !== true && (
             <Aviso titulo="Sin columna de saldo: no se puede comprobar que esté completo">
               <label className="check"><input type="checkbox" checked={a.aceptarSinCuadre} onChange={(e) => onAceptar(e.target.checked)} />Importar igualmente</label>
             </Aviso>
@@ -155,6 +275,7 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo }: { a: Arch
                   <li key={d.fila}>Fila {d.fila}: el saldo debería ser {formatearEuros(d.esperado)} y el banco dice {formatearEuros(d.real)}.</li>
                 ))}
               </ul>
+              {a.diagnostico && <Diagnostico texto={a.diagnostico} />}
             </Aviso>
           )}
         </>
@@ -187,6 +308,11 @@ function FilaMovimiento({ m, d, onCambio, categorias, pagadores, notaIA }: Props
             {fechaCorta(m.fecha)} · {m.cuenta} · {m.propuesta.motivo}
             {m.recurrente && ' · se repite cada mes'}
           </span>
+          {m.posibleDuplicado && (
+            <span className="peq" style={{ display: 'block', color: 'var(--warning-text)' }}>
+              Posible duplicado: ya importaste este importe en {m.cuenta} el día anterior o el siguiente. Se deja fuera; si es otro movimiento, elige qué es.
+            </span>
+          )}
         </span>
         <Importe c={m.importe} signo />
       </div>
@@ -349,24 +475,33 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
     setError(null);
     const nuevos: ArchivoCargado[] = [];
     for (const f of Array.from(lista)) {
+      const base = { nombre: f.name, aceptarSinCuadre: false, control: null, pdfProtegido: null };
       try {
+        if (esPdf(f)) {
+          setOcupado(`Leyendo ${f.name}…`);
+          if (f.size > MAX_PDF) throw new Error('El PDF es demasiado grande para ser un extracto (máximo 10 MB).');
+          nuevos.push(await cargarPdf(f.name, await f.arrayBuffer()));
+          continue;
+        }
         const filas = await leerArchivoBanco(f);
         const lectura = leerExtracto(filas);
         nuevos.push({
-          nombre: f.name, filas, error: null, aceptarSinCuadre: false,
+          ...base, filas, error: null,
           candidatas: lectura ? null : cabecerasCandidatas(filas),
-          extracto: lectura ? { cuenta: lectura.banco, lectura, cuadre: cuadrar(lectura.movimientos) } : null,
+          diagnostico: lectura ? null : diagnosticoAnonimo(filas),
+          extracto: lectura ? extractoDe(lectura) : null,
         });
       } catch (e) {
-        nuevos.push({ nombre: f.name, filas: [], extracto: null, candidatas: null, aceptarSinCuadre: false, error: e instanceof Error ? e.message : String(e) });
+        nuevos.push({ ...base, filas: [], extracto: null, candidatas: null, diagnostico: null, error: e instanceof Error ? e.message : String(e) });
       }
     }
+    setOcupado(null);
     setArchivos((a) => [...a, ...nuevos]);
     if (entrada.current) entrada.current.value = '';
   }
 
   const actualizar = (i: number, f: (a: ArchivoCargado) => ArchivoCargado) => setArchivos((l) => l.map((a, j) => (j === i ? f(a) : a)));
-  const listos = archivos.filter((a) => a.extracto && (a.extracto.cuadre.estado === 'ok' || (a.extracto.cuadre.estado === 'sin-saldo' && a.aceptarSinCuadre)));
+  const listos = archivos.filter(estaListo);
   const bloqueados = archivos.filter((a) => !listos.includes(a));
 
   async function revisar() {
@@ -375,7 +510,7 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
       const extractos = listos.flatMap((a) => (a.extracto ? [a.extracto] : []));
       // El aprendizaje local se entrena aquí mismo con tus gastos ya clasificados.
       const modelo = entrenar(ejemplosDeEntrenamiento((clave) => categoriaPorClave(clave as ClaveCategoria, datos.categorias), datos.gastos));
-      const movs = await prepararImportacion(extractos, await reglasAprendidas(), await huellasImportadas(), modelo);
+      const movs = await prepararImportacion(extractos, await reglasAprendidas(), await huellasImportadas(), modelo, await clavesImportadas());
       setDecisiones(new Map(movs.map((m) => [m.id, decisionInicial(m, datos.categorias, datos.pagadores)])));
       setFase({ paso: 'revision', movs });
     } catch (e) {
@@ -559,12 +694,12 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
         </p>
         <details className="peq">
           <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Cómo descargar los extractos</summary>
-          <p><strong>Revolut:</strong> en la app, cuenta en euros → ⋯ → Extracto → formato Excel/CSV → elige el periodo.</p>
+          <p><strong>Revolut:</strong> en la app, cuenta en euros → ⋯ → Extracto → formato PDF (o Excel/CSV) → elige el periodo.</p>
           <p><strong>Santander:</strong> banca online → Cuentas → Movimientos → elige las fechas → Descargar → Excel.</p>
-          <p>Si tu banco solo da PDF, busca la opción «Exportar movimientos» o «Descargar en Excel».</p>
+          <p>Sirven PDF con texto (los que descargas del banco). Un PDF escaneado o una foto no se puede leer.</p>
         </details>
-        <button type="button" className="btn primario bloque" onClick={() => entrada.current?.click()}>Elegir archivos (CSV o Excel)</button>
-        <input ref={entrada} type="file" multiple accept=".csv,.xlsx,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
+        <button type="button" className="btn primario bloque" disabled={ocupado !== null} onClick={() => entrada.current?.click()}>{ocupado ?? 'Elegir PDF, Excel o CSV'}</button>
+        <input ref={entrada} type="file" multiple accept=".pdf,.csv,.xlsx,.txt,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
       </section>
 
       {archivos.map((a, i) => (
@@ -574,10 +709,16 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           onCuenta={(c) => actualizar(i, (x) => (x.extracto ? { ...x, extracto: { ...x.extracto, cuenta: c } } : x))}
           onAceptar={(v) => actualizar(i, (x) => ({ ...x, aceptarSinCuadre: v }))}
           onQuitar={() => setArchivos((l) => l.filter((_, j) => j !== i))}
-          onMapeo={(m) => actualizar(i, (x) => {
-            const lectura = extraerMovimientos(x.filas, m);
-            return { ...x, extracto: { cuenta: lectura.banco, lectura, cuadre: cuadrar(lectura.movimientos) } };
-          })}
+          onMapeo={(m) => actualizar(i, (x) => ({ ...x, extracto: extractoDe(extraerMovimientos(x.filas, m, 'manual')) }))}
+          onContrasena={(c) => {
+            const protegido = a.pdfProtegido;
+            if (!protegido) return;
+            setOcupado(`Abriendo ${a.nombre}…`);
+            void cargarPdf(a.nombre, protegido.datos, c).then((nuevo) => {
+              actualizar(i, () => nuevo);
+              setOcupado(null);
+            });
+          }}
         />
       ))}
 

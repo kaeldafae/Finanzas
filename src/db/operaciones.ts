@@ -22,6 +22,7 @@ import {
 import { crearCopia, type CopiaSeguridad } from '../domain/copia';
 import type { DatosFinancieros } from '../domain/resumen';
 import { TABLAS_SYNC, type Instantanea } from '../domain/sync';
+import { claveSuelta } from '../domain/importacion/huella';
 import { db, marcaTiempo, notificarCambio, nuevoId, normalizarAjustes, sellar, type BaseDatos } from './db';
 
 /*
@@ -358,6 +359,38 @@ export async function huellasImportadas(base: BaseDatos = db): Promise<Set<strin
   for (const f of [...g, ...i, ...e]) if (f.huella) s.add(f.huella);
   for (const f of t) s.add(f.id);
   return s;
+}
+
+/**
+ * Movimientos importados que siguen en la app, contados por cuenta, día e importe con signo.
+ * Permite reconocer lo ya importado aunque llegue en otro formato (PDF frente a CSV).
+ */
+export async function clavesImportadas(base: BaseDatos = db): Promise<Map<string, number>> {
+  const [g, i, e, t] = await Promise.all([base.gastos.toArray(), base.ingresos.toArray(), base.extras.toArray(), base.traspasos.toArray()]);
+  // Cada movimiento importado con su importe con signo, tal como venía del banco.
+  const movs = new Map<string, { cuenta: string | undefined; fecha: string | undefined; importe: number }>();
+  for (const x of g) if (vivo(x) && x.huella) movs.set(x.huella, { cuenta: x.cuenta, fecha: x.fecha, importe: x.devolucion ? x.importe : -x.importe });
+  for (const x of i) if (vivo(x) && x.huella) movs.set(x.huella, { cuenta: x.cuenta, fecha: x.fecha, importe: x.neto });
+  for (const x of e) if (vivo(x) && x.huella) movs.set(x.huella, { cuenta: x.cuenta, fecha: x.fecha, importe: x.importe });
+  for (const x of t) if (vivo(x)) movs.set(x.id, { cuenta: x.cuenta, fecha: x.fecha, importe: x.importe });
+
+  const m = new Map<string, number>();
+  const sumar = (cuenta: string | undefined, fecha: string | undefined, importe: number) => {
+    if (!cuenta || !fecha) return;
+    const k = claveSuelta(cuenta, fecha, importe);
+    m.set(k, (m.get(k) ?? 0) + 1);
+  };
+  for (const [huella, x] of movs) {
+    if (!huella.endsWith('-comision')) {
+      sumar(x.cuenta, x.fecha, x.importe);
+      continue;
+    }
+    // Las comisiones separadas no cuentan solas, pero su movimiento también se reconoce por el total
+    // con comisión (así lo muestra el PDF de Revolut).
+    const padre = movs.get(huella.slice(0, -'-comision'.length));
+    if (padre) sumar(padre.cuenta, padre.fecha, padre.importe + x.importe);
+  }
+  return m;
 }
 
 export async function reglasAprendidas(base: BaseDatos = db): Promise<Map<string, { categoriaId: string; tipo: Gasto['tipo'] }>> {
