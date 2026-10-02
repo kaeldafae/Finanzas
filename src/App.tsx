@@ -6,7 +6,7 @@ import { solicitarPersistencia, type EstadoAlmacenamiento } from './lib/almacena
 import { diasDesde } from './lib/fecha';
 import { PantallaMes } from './screens/PantallaMes';
 import { iniciarSync, useEstadoSync } from './sync/servicio';
-import { IconoAjustes, IconoAnio, IconoColchon, IconoMes, IconoRenta } from './ui/iconos';
+import { IconoAjustes, IconoAnio, IconoColchon, IconoFuturo, IconoMes, IconoRenta } from './ui/iconos';
 
 // La pantalla Mes va en el paquete inicial; el resto se carga al abrirla (y queda en caché para offline).
 const PantallaAjustes = lazy(() =>
@@ -20,22 +20,27 @@ const PantallaColchon = lazy(() =>
     default: m.PantallaColchon,
   })),
 );
+const PantallaFuturo = lazy(() => import('./screens/PantallaFuturo').then((m) => ({ default: m.PantallaFuturo })));
+const PantallaPreguntar = lazy(() => import('./screens/PantallaPreguntar').then((m) => ({ default: m.PantallaPreguntar })));
 const PantallaRenta = lazy(() => import('./screens/PantallaRenta').then((m) => ({ default: m.PantallaRenta })));
 const PantallaImportar = lazy(() => import('./screens/PantallaImportar').then((m) => ({ default: m.PantallaImportar })));
 
-const RUTAS = ['mes', 'anio', 'colchon', 'renta', 'ajustes', 'importar'] as const;
+const RUTAS = ['mes', 'anio', 'futuro', 'ahorro', 'renta', 'ajustes', 'importar', 'preguntar'] as const;
 type Ruta = (typeof RUTAS)[number];
 
 const PESTANAS: ReadonlyArray<{ ruta: Ruta; texto: string; icono: ReactNode }> = [
   { ruta: 'mes', texto: 'Mes', icono: <IconoMes /> },
   { ruta: 'anio', texto: 'Año', icono: <IconoAnio /> },
-  { ruta: 'colchon', texto: 'Colchón', icono: <IconoColchon /> },
+  { ruta: 'futuro', texto: 'Futuro', icono: <IconoFuturo /> },
+  { ruta: 'ahorro', texto: 'Ahorro', icono: <IconoColchon /> },
   { ruta: 'renta', texto: 'Renta', icono: <IconoRenta /> },
   { ruta: 'ajustes', texto: 'Ajustes', icono: <IconoAjustes /> },
 ];
 
 function rutaActual(): Ruta {
   const r = window.location.hash.replace(/^#\/?/, '');
+  // Enlaces antiguos: la pantalla Colchón ahora es Ahorro.
+  if (r === 'colchon') return 'ahorro';
   return (RUTAS as readonly string[]).includes(r) ? (r as Ruta) : 'mes';
 }
 
@@ -159,7 +164,9 @@ export function App() {
               }}
             />
           )}
-          {ruta === 'colchon' && <PantallaColchon />}
+          {ruta === 'ahorro' && <PantallaColchon />}
+          {ruta === 'futuro' && <PantallaFuturo />}
+          {ruta === 'preguntar' && <PantallaPreguntar />}
           {ruta === 'renta' && <PantallaRenta anio={periodo.anio} onCambioAnio={(anio) => setPeriodo({ ...periodo, anio })} />}
           {ruta === 'ajustes' && <PantallaAjustes almacenamiento={almacenamiento} />}
           {ruta === 'importar' && <PantallaImportar onTerminar={() => irA('anio')} />}
@@ -167,7 +174,7 @@ export function App() {
       </main>
       <nav className="nav" aria-label="Secciones">
         {PESTANAS.map((p) => (
-          <a key={p.ruta} href={`#/${p.ruta}`} aria-current={ruta === p.ruta || (ruta === 'importar' && p.ruta === 'ajustes') ? 'page' : undefined}>
+          <a key={p.ruta} href={`#/${p.ruta}`} aria-current={ruta === p.ruta || (ruta === 'importar' && p.ruta === 'ajustes') || (ruta === 'preguntar' && p.ruta === 'mes') ? 'page' : undefined}>
             {p.icono}
             {p.texto}
           </a>

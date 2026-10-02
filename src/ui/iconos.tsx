@@ -9,6 +9,9 @@ export const IconoAnio = () => (
 export const IconoColchon = () => (
   <svg {...comun}><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" /></svg>
 );
+export const IconoFuturo = () => (
+  <svg {...comun}><path d="M3 17l6-6 4 4 8-8" /><path d="M15 7h6v6" /></svg>
+);
 export const IconoRenta = () => (
   <svg {...comun}><path d="M7 3h8l4 4v14H7z" /><path d="M15 3v4h4M10 12h6M10 16h6" /></svg>
 );

@@ -7,6 +7,7 @@ import {
   TIPOS_GASTO,
   type ConceptoExtra,
   type EstadoIngreso,
+  type Evidencia,
   type Gasto,
   type Ingreso,
   type IngresoExtra,
@@ -271,9 +272,26 @@ export function FormGasto({ periodo, gasto, tipoInicial, onCerrar }: PropsGasto)
         </Selector>
         <CampoTexto etiqueta="Importe (€)" tipo="importe" valor={importe} onCambio={setImporte} error={intentado ? errImporte : undefined} autoFocus={!gasto} />
         <CampoTexto etiqueta="Nota" valor={nota} onCambio={setNota} placeholder="Opcional" />
+        {gasto?.huella && <Origen fila={gasto} />}
         <BotonesForm editando={Boolean(gasto)} onBorrar={() => void borrar()} guardando={guardando} />
       </form>
     </Dialogo>
+  );
+}
+
+/** De dónde sale un movimiento importado: archivo, página, fila y comprobaciones superadas. */
+function Origen({ fila }: { fila: { fecha?: string; cuenta?: string; evidencia?: Evidencia; importacion?: string } }) {
+  const { datos } = useEstado();
+  const imp = datos.importaciones.find((i) => i.id === fila.importacion);
+  const archivo = imp?.archivos?.find((a) => a.huella === fila.evidencia?.archivo);
+  const ev = fila.evidencia;
+  return (
+    <p className="peq muted">
+      <strong>Origen:</strong> importado de {fila.cuenta ?? 'un banco'}{fila.fecha ? ` (${fila.fecha})` : ''}
+      {archivo ? ` · ${archivo.nombre}` : ''}
+      {ev ? ` · ${ev.pagina ? `página ${ev.pagina}, ` : ''}fila ${ev.fila}` : ''}
+      {archivo && archivo.verificaciones.length > 0 ? ` · verificado: ${archivo.verificaciones.join(', ')}` : ''}.
+    </p>
   );
 }
 

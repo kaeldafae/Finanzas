@@ -5,9 +5,12 @@ import { CLAVES_REPARTO, ETIQUETAS_REPARTO } from '../domain/reparto';
 import { useEstado } from '../estado';
 import { Aviso, Barra, Importe } from '../ui/base';
 import { EditorReparto } from '../ui/EditorReparto';
+import { escenariosAhorro } from '../domain/objetivos';
+import { euros, formatearEuros } from '../domain/dinero';
+import { Objetivos } from './ahorro/Objetivos';
 
 export function PantallaColchon() {
-  const { ajustes } = useEstado();
+  const { ajustes, hoy } = useEstado();
   const a = useAnalisis();
   const est = a.estimacion;
   const reglas = est?.completo ? ajustes.repartoCompleto : ajustes.repartoIncompleto;
@@ -15,7 +18,7 @@ export function PantallaColchon() {
 
   return (
     <>
-      <h1>Colchón de seguridad</h1>
+      <h1>Ahorro</h1>
 
       {a.errorReparto && <Aviso titulo="Reglas de reparto no válidas">{a.errorReparto}</Aviso>}
 
@@ -27,7 +30,7 @@ export function PantallaColchon() {
 
       {est && (
         <section className="card" aria-labelledby="t-col">
-          <h2 id="t-col">{est.completo ? 'Colchón completo ✓' : 'Progreso'}</h2>
+          <h2 id="t-col">{est.completo ? 'Colchón de seguridad completo ✓' : 'Colchón de seguridad'}</h2>
           <div className="grande"><Importe c={est.acumulado} /></div>
           <p className="muted">de <Importe c={est.objetivo} /> ({ajustes.mesesColchon} meses × <Importe c={a.gastoMedio} /> de gasto medio)</p>
           <Barra valor={est.progreso} etiqueta="Progreso del colchón" />
@@ -45,11 +48,23 @@ export function PantallaColchon() {
             <p className="peq muted" style={{ marginTop: 8 }}>Sin aportaciones positivas recientes no se puede estimar la fecha.</p>
           )}
           {est.acumulado < 0 && <Aviso titulo="Colchón en negativo">Los meses en negativo han consumido el ahorro inicial.</Aviso>}
+          {!est.completo && est.falta > 0 && (
+            <p className="peq" style={{ marginTop: 8 }}>
+              ¿Y si apartas…?{' '}
+              {escenariosAhorro(est.falta, [euros(100), euros(200), euros(300)], hoy).map((s) => (
+                <span key={s.aportacion} className="etiqueta" style={{ marginRight: 6 }}>
+                  {formatearEuros(s.aportacion)}/mes → {s.fecha ? `${nombreMes(s.fecha.mes).slice(0, 3)} ${s.fecha.anio}` : '—'}
+                </span>
+              ))}
+            </p>
+          )}
           <p className="peq muted" style={{ marginTop: 8 }}>
             Cuenta el ahorro inicial y solo los meses reales. Aporte medio de los últimos 6 meses reales.
           </p>
         </section>
       )}
+
+      <Objetivos />
 
       {a.real && (
         <section className="card" aria-labelledby="t-acum">
