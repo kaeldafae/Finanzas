@@ -10,8 +10,8 @@ import type { DatosFinancieros } from './resumen';
  * para que todos los dispositivos lleguen al mismo resultado sin coordinarse.
  */
 
-export type TablaSync = 'pagadores' | 'categorias' | 'ingresos' | 'extras' | 'gastos' | 'meses' | 'reglas' | 'traspasos' | 'presupuestos' | 'importaciones';
-export const TABLAS_SYNC: readonly TablaSync[] = ['pagadores', 'categorias', 'ingresos', 'extras', 'gastos', 'meses', 'reglas', 'traspasos', 'presupuestos', 'importaciones'];
+export type TablaSync = 'pagadores' | 'categorias' | 'ingresos' | 'extras' | 'gastos' | 'meses' | 'reglas' | 'traspasos' | 'presupuestos' | 'importaciones' | 'compromisos' | 'objetivos';
+export const TABLAS_SYNC: readonly TablaSync[] = ['pagadores', 'categorias', 'ingresos', 'extras', 'gastos', 'meses', 'reglas', 'traspasos', 'presupuestos', 'importaciones', 'compromisos', 'objetivos'];
 
 export type Instantanea = DatosFinancieros & { ajustes: Ajustes };
 
@@ -71,6 +71,8 @@ export function fusionar(local: Instantanea, remota: Instantanea): Instantanea {
     traspasos: fusionarFilas(local.traspasos, remota.traspasos),
     presupuestos: fusionarFilas(local.presupuestos, remota.presupuestos),
     importaciones: fusionarFilas(local.importaciones, remota.importaciones),
+    compromisos: fusionarFilas(local.compromisos, remota.compromisos),
+    objetivos: fusionarFilas(local.objetivos, remota.objetivos),
     ajustes: fusionarAjustes(local.ajustes, remota.ajustes),
   };
 }
@@ -90,6 +92,8 @@ export function purgarBorrados(d: Instantanea, ahora: number, dias = DIAS_CONSER
     traspasos: d.traspasos.filter(vivo),
     presupuestos: d.presupuestos.filter(vivo),
     importaciones: d.importaciones.filter(vivo),
+    compromisos: d.compromisos.filter(vivo),
+    objetivos: d.objetivos.filter(vivo),
     ajustes: d.ajustes,
   };
 }

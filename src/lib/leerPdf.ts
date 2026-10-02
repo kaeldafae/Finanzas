@@ -13,12 +13,13 @@ export class PdfConContrasena extends Error {
 /**
  * Extrae el texto del PDF con su posición, en el propio dispositivo. Usa pdf.js (Mozilla) en un worker
  * servido por la app: sin CDN y sin enviar el archivo a ningún sitio. pdf.js 6 no ejecuta código
- * del PDF (ni JavaScript embebido ni funciones compiladas con eval).
+ * del PDF (ni JavaScript embebido ni funciones compiladas con eval). Se usa la compilación «legacy»,
+ * que incluye las funciones de JavaScript más nuevas que Safari aún no tiene (p. ej. Map.getOrInsertComputed).
  */
 export async function leerTextoPdf(datos: ArrayBuffer, contrasena?: string): Promise<{ textos: TextoPdf[]; paginas: number }> {
-  const pdfjs = await import('pdfjs-dist');
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   if (!pdfjs.GlobalWorkerOptions.workerPort) {
-    pdfjs.GlobalWorkerOptions.workerPort = new Worker(new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url), { type: 'module' });
+    pdfjs.GlobalWorkerOptions.workerPort = new Worker(new URL('pdfjs-dist/legacy/build/pdf.worker.min.mjs', import.meta.url), { type: 'module' });
   }
   const tarea = pdfjs.getDocument({
     data: new Uint8Array(datos),

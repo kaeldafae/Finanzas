@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Categoria } from '../modelo';
 import { consenso, type ItemIA } from './ia';
-import { construirMensajes, esquemaRespuesta, revisarConIALocal, TAM_LOTE, type MensajeIA, type MotorIA } from './iaLocal';
+import { construirMensajes, ejemplosDeEvaluacion, esquemaRespuesta, evaluarModelo, revisarConIALocal, TAM_LOTE, type MensajeIA, type MotorIA } from './iaLocal';
 
 const categorias: Categoria[] = [
   { id: 'c-hogar', nombre: 'Hogar', orden: 0, archivada: false, clave: 'hogar' },
@@ -65,5 +65,25 @@ describe('IA integrada (con motor simulado)', () => {
     const { r1, r2 } = await revisarConIALocal(motorSimulado({ basura: true }), items, categorias);
     expect(r1.propuestas.size + r2.propuestas.size).toBe(0);
     expect(r1.errores.join(' ')).toMatch(/incompleta/);
+  });
+});
+
+describe('evaluación de modelos con tus datos', () => {
+  it('usa tus comercios confirmados como respuesta correcta y cuenta aciertos y fallos', async () => {
+    const gastos = [
+      { id: 'a', anio: 2026, mes: 1, categoriaId: 'c-rest', importe: 1000, tipo: 'Variable' as const, nota: '', comercio: 'Braseria Can Pep', huella: 'h1' },
+      { id: 'b', anio: 2026, mes: 1, categoriaId: 'c-hogar', importe: 1000, tipo: 'Variable' as const, nota: '', comercio: 'Ferreteria Vila', huella: 'h2' },
+      // El modelo simulado dirá "Hogar" y aquí la categoría correcta es Otros: un fallo.
+      { id: 'c', anio: 2026, mes: 1, categoriaId: 'c-otros', importe: 1000, tipo: 'Variable' as const, nota: '', comercio: 'Ferreteria Online', huella: 'h3' },
+      // Apuntado a mano (sin huella) o de personas: no sirve para evaluar.
+      { id: 'd', anio: 2026, mes: 1, categoriaId: 'c-rest', importe: 1000, tipo: 'Variable' as const, nota: '', comercio: 'Bar' },
+      { id: 'e', anio: 2026, mes: 1, categoriaId: 'c-pers', importe: 1000, tipo: 'Variable' as const, nota: '', comercio: 'Bizum enviado', huella: 'h4' },
+    ];
+    const ejemplos = ejemplosDeEvaluacion(gastos, categorias);
+    expect(ejemplos.map((e) => e.comercio)).toEqual(['Braseria Can Pep', 'Ferreteria Vila', 'Ferreteria Online']);
+    const r = await evaluarModelo(motorSimulado(), ejemplos, categorias);
+    expect({ aciertos: r.aciertos, total: r.total, sinRespuesta: r.sinRespuesta, fallos: r.fallos }).toEqual({
+      aciertos: 2, total: 3, sinRespuesta: 0, fallos: [{ comercio: 'Ferreteria Online', esperado: 'Otros', propuesto: 'Hogar' }],
+    });
   });
 });

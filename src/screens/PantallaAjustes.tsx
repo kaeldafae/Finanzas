@@ -9,6 +9,7 @@ import { IAIntegrada } from './ajustes/IAIntegrada';
 import { Listas } from './ajustes/Listas';
 import { Personales } from './ajustes/Personales';
 import { Importaciones } from './ajustes/Importaciones';
+import { PagosRecurrentes } from './ajustes/PagosRecurrentes';
 import { Presupuestos } from './ajustes/Presupuestos';
 import { Sincronizacion } from './ajustes/Sincronizacion';
 
@@ -32,7 +33,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
       <h1>Ajustes</h1>
       <section className="card" aria-labelledby="t-imp">
         <h2 id="t-imp">Importar extractos del banco</h2>
-        <p className="peq muted">Carga los movimientos de Santander, Revolut u otro banco (CSV o Excel). Se leen en este dispositivo, se clasifican y los revisas antes de guardar.</p>
+        <p className="peq muted">Carga los movimientos de Santander, Revolut u otro banco (PDF, Excel o CSV) y tus nóminas en PDF. Se leen en este dispositivo, se clasifican y los revisas antes de guardar.</p>
         <a className="btn primario bloque" href="#/importar">Importar extractos</a>
         <Importaciones />
       </section>
@@ -41,6 +42,7 @@ export function PantallaAjustes({ almacenamiento }: { almacenamiento: EstadoAlma
       <Copias />
       <Personales />
       <Listas />
+      <PagosRecurrentes />
       <Presupuestos />
       <Fiscal />
 

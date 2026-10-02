@@ -4,7 +4,10 @@ import { ejemplosDeEntrenamiento, entrenar } from '../domain/importacion/aprendi
 import { UMBRAL_REVISION } from '../domain/importacion/clasificar';
 import { cuadrar } from '../domain/importacion/cuadre';
 import { cabecerasCandidatas, diagnosticoAnonimo, extraerMovimientos, leerExtracto, type LecturaExtracto, type Mapeo } from '../domain/importacion/formatos';
-import { leerPdfExtracto, type ControlResumen } from '../domain/importacion/pdf';
+import { leerPdfExtracto, type ControlResumen, type TextoPdf } from '../domain/importacion/pdf';
+import { tipoDocumento } from '../domain/importacion/documento';
+import { leerNomina, type DatosNomina } from '../domain/importacion/nomina';
+import { leerTextoPegado } from '../domain/importacion/textoPegado';
 import {
   construirFilas,
   informe,
@@ -19,8 +22,8 @@ import {
 import { deducirDecimal, type Celda } from '../domain/importacion/texto';
 import { analizarCoherencia, comprobarConservacion } from '../domain/importacion/analisis';
 import { RevisionIA } from './importar/RevisionIA';
-import { CONCEPTOS_EXTRA, idMes, nombreMes, TIPOS_GASTO, type Categoria, type ClaveCategoria, type ConceptoExtra, type Pagador, type TipoGasto } from '../domain/modelo';
-import { aplicarImportacion, clavesImportadas, guardarPresupuestos, huellasImportadas, reglasAprendidas } from '../db/operaciones';
+import { CONCEPTOS_EXTRA, idMes, nombreMes, TIPOS_GASTO, type ArchivoImportado, type Categoria, type ClaveCategoria, type ConceptoExtra, type Pagador, type TipoGasto } from '../domain/modelo';
+import { aplicarImportacion, aplicarNomina, clavesImportadas, guardarPresupuestos, huellasImportadas, reglasAprendidas } from '../db/operaciones';
 import { nuevoId } from '../db/db';
 import { useEstado } from '../estado';
 import { leerArchivoBanco } from '../lib/leerArchivo';
@@ -85,6 +88,155 @@ interface ArchivoCargado {
   diagnostico: string | null;
   /** PDF protegido: se guarda el archivo para reintentarlo con la contraseña. */
   pdfProtegido: { datos: ArrayBuffer; incorrecta: boolean } | null;
+  /** Huella SHA-256 abreviada del archivo: evidencia de origen de cada movimiento. */
+  huella?: string;
+  /** Si el documento es una nómina, sus datos (no se importa como extracto). */
+  nomina?: DatosNomina;
+  /** Sin texto (foto o PDF escaneado): se puede leer con OCR en el dispositivo si lo pides. */
+  ocrPendiente?: { pdf: ArrayBuffer } | { imagen: Blob };
+}
+
+function esImagen(f: File): boolean {
+  return f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name);
+}
+
+/** OCR en el dispositivo y, después, el mismo lector y las mismas comprobaciones que un PDF con texto. */
+async function leerConOcr(a: ArchivoCargado, alProgresar: (t: string) => void): Promise<ArchivoCargado> {
+  const pendiente = a.ocrPendiente;
+  if (!pendiente) return a;
+  const base: ArchivoCargado = { ...a, ocrPendiente: undefined, error: null, diagnostico: null };
+  try {
+    const { paginasComoImagen, reconocer } = await import('../lib/ocr');
+    alProgresar('Preparando el reconocimiento de texto…');
+    const imagenes = 'pdf' in pendiente ? await paginasComoImagen(pendiente.pdf.slice(0)) : [pendiente.imagen];
+    const textos = await reconocer(imagenes, (p) => alProgresar(`${Math.round(p.progreso * 100)} % · ${p.texto}`));
+    if (textos.length === 0) return { ...base, error: 'El reconocimiento de texto no ha encontrado nada legible en la imagen.' };
+    const r = interpretarPdf(base, textos, imagenes.length);
+    return r.extracto ? { ...r, extracto: { ...r.extracto, lectura: { ...r.extracto.lectura, deteccion: 'ocr' } } } : r;
+  } catch (e) {
+    return { ...base, error: `No se pudo hacer el reconocimiento de texto: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/** SHA-256 del archivo, abreviado a 16 caracteres. Identifica el archivo sin guardar su contenido. */
+async function huellaArchivo(datos: ArrayBuffer | string): Promise<string> {
+  const bytes = typeof datos === 'string' ? new TextEncoder().encode(datos) : new Uint8Array(datos);
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
+/** Lo que se ha comprobado de un archivo, en palabras (para la evidencia). */
+function verificacionesDe(a: ArchivoCargado): string[] {
+  const out: string[] = [];
+  if (a.extracto?.cuadre.estado === 'ok') out.push(`saldo fila a fila (${a.extracto.cuadre.comprobados} comprobaciones)`);
+  if (a.control?.ok) out.push('resumen del extracto');
+  if (out.length === 0) out.push('sin saldo para comprobar (aceptado por ti)');
+  return out;
+}
+
+function archivoDe(a: ArchivoCargado, ex: ExtractoLeido): ArchivoImportado {
+  return { nombre: a.nombre, huella: a.huella ?? '', metodo: ex.lectura.deteccion, verificaciones: verificacionesDe(a) };
+}
+
+function hoyISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Movimientos pegados como texto (Texto en vivo del iPhone o copiados de la web del banco). */
+function PegarTexto({ onLeido }: { onLeido: (a: ArchivoCargado) => void }) {
+  const [texto, setTexto] = useState('');
+  const id = useId();
+  return (
+    <details className="peq">
+      <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Pegar texto (de una foto o de la web del banco)</summary>
+      <p className="muted">
+        En el iPhone, abre la captura o la foto del extracto, mantén pulsado el texto («Texto en vivo»), cópialo y pégalo aquí. Cada línea con fecha, concepto e importe (y saldo si aparece).
+      </p>
+      <div className="campo">
+        <label htmlFor={id}>Texto de los movimientos</label>
+        <textarea id={id} rows={6} value={texto} onChange={(e) => setTexto(e.target.value)} style={{ width: '100%', font: 'inherit' }} />
+      </div>
+      <button
+        type="button"
+        className="btn bloque"
+        disabled={!texto.trim()}
+        onClick={() => {
+          void huellaArchivo(texto).then((huella) => {
+            const lectura = leerTextoPegado(texto, hoyISO());
+            const base: ArchivoCargado = { nombre: 'Texto pegado', filas: [], extracto: null, error: null, candidatas: null, aceptarSinCuadre: false, control: null, diagnostico: null, pdfProtegido: null, huella };
+            onLeido(lectura ? { ...base, extracto: extractoDe(lectura) } : { ...base, error: 'No encuentro líneas con fecha, concepto e importe en el texto pegado.' });
+            setTexto('');
+          });
+        }}
+      >
+        Leer texto
+      </button>
+    </details>
+  );
+}
+
+/** Nómina en PDF: completa el ingreso del banco con bruto, Seguridad Social y retención. */
+function NominaArchivo({ n }: { n: DatosNomina }) {
+  const { datos, hoy } = useEstado();
+  const empresas = datos.pagadores.filter((p) => !p.archivado && p.tipo === 'Empresa');
+  const [pagadorId, setPagadorId] = useState(empresas[0]?.id ?? '');
+  const [periodo, setPeriodo] = useState(n.periodo ? `${n.periodo.anio}-${String(n.periodo.mes).padStart(2, '0')}` : `${hoy.anio}-${String(hoy.mes).padStart(2, '0')}`);
+  const [resultado, setResultado] = useState<string | null>(null);
+  const m = /^(\d{4})-(\d{2})$/.exec(periodo);
+  return (
+    <div>
+      <p className="peq pos">✓ Nómina leída y cuadrada: devengado − deducciones = líquido.</p>
+      <ul className="lista">
+        <li className="fila"><span className="principal">Total devengado (bruto)</span><Importe c={n.bruto} /></li>
+        <li className="fila"><span className="principal">Seguridad Social</span><Importe c={n.seguridadSocial} /></li>
+        <li className="fila"><span className="principal">Retención IRPF</span><Importe c={n.irpf} /></li>
+        {n.otrasDeducciones > 0 && <li className="fila"><span className="principal">Otras deducciones</span><Importe c={n.otrasDeducciones} /></li>}
+        <li className="fila"><span className="principal"><strong>Líquido a percibir</strong></span><Importe c={n.neto} /></li>
+      </ul>
+      {n.avisos.length > 0 && <ul className="peq muted" style={{ paddingLeft: 18 }}>{n.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
+      <div className="rejilla-2">
+        <CampoTexto etiqueta="Mes de la nómina (aaaa-mm)" valor={periodo} onCambio={setPeriodo} maxLength={7} />
+        <Selector etiqueta="Pagador" valor={pagadorId} onCambio={setPagadorId}>
+          <option value="">Elige…</option>
+          {datos.pagadores.filter((p) => !p.archivado).map((p) => <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>)}
+        </Selector>
+      </div>
+      {resultado ? (
+        <p className="peq pos" role="status">{resultado}</p>
+      ) : (
+        <button
+          type="button"
+          className="btn primario bloque"
+          disabled={!m || !pagadorId}
+          onClick={() => {
+            if (!m) return;
+            void aplicarNomina(n, { anio: Number(m[1]), mes: Number(m[2]) }, pagadorId).then((r) =>
+              setResultado(r.accion === 'completada' ? '✓ Completado el ingreso del banco con los datos de la nómina.' : '✓ No había ingreso del banco con ese neto: se ha creado el ingreso con la nómina.'),
+            );
+          }}
+        >
+          Aplicar nómina
+        </button>
+      )}
+      <p className="peq muted">Busca el ingreso del banco con el mismo neto en ese mes o el siguiente y lo completa; si no existe, lo crea. Así la renta sale con el bruto, la Seguridad Social y la retención reales.</p>
+    </div>
+  );
+}
+
+/** Texto de un PDF: decide si es extracto, nómina u otra cosa. */
+function interpretarPdf(base: ArchivoCargado, textos: readonly TextoPdf[], paginas: number): ArchivoCargado {
+  const tipo = tipoDocumento(textos.map((t) => t.texto).join('\n'));
+  if (tipo === 'nomina') {
+    const n = leerNomina(textos);
+    return n.ok ? { ...base, nomina: n.nomina } : { ...base, error: `Es una nómina, pero no se puede leer con seguridad: ${n.motivo}` };
+  }
+  if (tipo === 'factura') {
+    return { ...base, error: 'Parece una factura. La app importa extractos y nóminas; el gasto de una factura ya llega con el extracto del banco.' };
+  }
+  const r = leerPdfExtracto(textos, paginas);
+  if (!r.lectura) return { ...base, diagnostico: r.diagnostico };
+  return { ...base, extracto: extractoDe(r.lectura), control: r.control, diagnostico: r.diagnostico };
 }
 
 function extractoDe(lectura: LecturaExtracto): ExtractoLeido {
@@ -104,12 +256,8 @@ async function cargarPdf(nombre: string, datos: ArrayBuffer, contrasena?: string
     const { leerTextoPdf } = await import('../lib/leerPdf');
     // pdf.js transfiere el buffer al worker: se pasa una copia para poder reintentar con contraseña.
     const { textos, paginas } = await leerTextoPdf(datos.slice(0), contrasena);
-    if (textos.length === 0) {
-      return { ...vacio, error: 'Este PDF no tiene texto (parece escaneado o una foto). Descarga el extracto desde la app o la web del banco: esos PDF sí llevan texto.' };
-    }
-    const r = leerPdfExtracto(textos, paginas);
-    if (!r.lectura) return { ...vacio, diagnostico: r.diagnostico };
-    return { ...vacio, extracto: extractoDe(r.lectura), control: r.control, diagnostico: r.diagnostico };
+    if (textos.length === 0) return { ...vacio, huella: await huellaArchivo(datos), ocrPendiente: { pdf: datos } };
+    return interpretarPdf({ ...vacio, huella: await huellaArchivo(datos) }, textos, paginas);
   } catch (e) {
     if (e instanceof PdfConContrasena) return { ...vacio, pdfProtegido: { datos, incorrecta: e.incorrecta } };
     return { ...vacio, error: e instanceof Error ? e.message : String(e) };
@@ -160,6 +308,12 @@ function textoDeteccion(ex: ExtractoLeido): string | null {
         : 'Columnas detectadas automáticamente por su contenido.';
     case 'manual':
       return 'Columnas elegidas a mano.';
+    case 'texto':
+      return 'Leído del texto pegado.';
+    case 'ocr':
+      return 'Leído de la imagen con reconocimiento de texto (OCR) en este dispositivo.';
+    case 'nomina':
+      return null;
     case 'cabeceras':
       return null;
   }
@@ -216,7 +370,7 @@ function MapeoManual({ archivo, onListo }: { archivo: ArchivoCargado; onListo: (
   );
 }
 
-function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasena }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void; onContrasena: (c: string) => void }) {
+function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasena, onOcr }: { a: ArchivoCargado; onCuenta: (c: string) => void; onAceptar: (v: boolean) => void; onQuitar: () => void; onMapeo: (m: Mapeo) => void; onContrasena: (c: string) => void; onOcr: () => void }) {
   const ex = a.extracto;
   return (
     <div className="card" style={{ background: 'var(--surface-2)' }}>
@@ -226,7 +380,15 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasen
       </div>
       {a.error && <Aviso>{a.error}</Aviso>}
       {a.pdfProtegido && <ContrasenaPdf a={a} onAbrir={onContrasena} />}
-      {!a.error && !a.pdfProtegido && !ex && (
+      {a.nomina && <NominaArchivo n={a.nomina} />}
+      {a.ocrPendiente && (
+        <div>
+          <p className="peq">{'pdf' in a.ocrPendiente ? 'Este PDF no lleva texto (está escaneado o es una foto).' : 'Es una imagen.'} Se puede leer con reconocimiento de texto (OCR) en este dispositivo: la imagen no sale de aquí. La primera vez se descargan unos 6 MB.</p>
+          <p className="peq muted">Si un número se reconoce mal, el saldo no cuadrará y no se importará nada. Con buena luz y la imagen recta funciona mejor; un PDF descargado del banco es siempre más fiable.</p>
+          <button type="button" className="btn primario bloque" onClick={onOcr}>Leer con OCR</button>
+        </div>
+      )}
+      {!a.error && !a.pdfProtegido && !a.nomina && !a.ocrPendiente && !ex && (
         <>
           <Aviso titulo="No he podido leer los movimientos con seguridad">
             No encuentro una tabla de movimientos que pueda comprobar con el saldo. No se importa nada para no meter datos erróneos. Prueba a descargar el extracto otra vez (CSV, Excel o PDF).
@@ -248,6 +410,12 @@ function ResumenArchivo({ a, onCuenta, onAceptar, onQuitar, onMapeo, onContrasen
             {ex.lectura.descartados.length > 0 && ` · ${ex.lectura.descartados.length} descartados (pendientes, anulados, huchas u otra divisa)`}
           </p>
           {textoDeteccion(ex) && <p className="peq muted">{textoDeteccion(ex)}</p>}
+          {ex.lectura.hipotesis && ex.lectura.hipotesis.length > 0 && (
+            <details className="peq">
+              <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Cómo se ha leído</summary>
+              <ul className="muted" style={{ paddingLeft: 18, margin: 0 }}>{ex.lectura.hipotesis.map((h) => <li key={h}>{h}</li>)}</ul>
+            </details>
+          )}
           {a.control?.ok === true && (
             <p className="peq pos">
               ✓ Coincide con el resumen del extracto: entradas {formatearEuros(a.control.entradas)}, salidas {formatearEuros(a.control.salidas)}.
@@ -483,10 +651,15 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           nuevos.push(await cargarPdf(f.name, await f.arrayBuffer()));
           continue;
         }
+        if (esImagen(f)) {
+          if (f.size > MAX_PDF) throw new Error('La imagen es demasiado grande (máximo 10 MB).');
+          nuevos.push({ ...base, filas: [], extracto: null, error: null, candidatas: null, diagnostico: null, huella: await huellaArchivo(await f.arrayBuffer()), ocrPendiente: { imagen: f } });
+          continue;
+        }
         const filas = await leerArchivoBanco(f);
         const lectura = leerExtracto(filas);
         nuevos.push({
-          ...base, filas, error: null,
+          ...base, filas, error: null, huella: await huellaArchivo(await f.arrayBuffer()),
           candidatas: lectura ? null : cabecerasCandidatas(filas),
           diagnostico: lectura ? null : diagnosticoAnonimo(filas),
           extracto: lectura ? extractoDe(lectura) : null,
@@ -507,7 +680,7 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
   async function revisar() {
     setOcupado('Clasificando movimientos…');
     try {
-      const extractos = listos.flatMap((a) => (a.extracto ? [a.extracto] : []));
+      const extractos = listos.flatMap((a) => (a.extracto ? [{ ...a.extracto, archivo: archivoDe(a, a.extracto) }] : []));
       // El aprendizaje local se entrena aquí mismo con tus gastos ya clasificados.
       const modelo = entrenar(ejemplosDeEntrenamiento((clave) => categoriaPorClave(clave as ClaveCategoria, datos.categorias), datos.gastos));
       const movs = await prepararImportacion(extractos, await reglasAprendidas(), await huellasImportadas(), modelo, await clavesImportadas());
@@ -574,6 +747,7 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           movimientos: incluidos.length,
           desde: fechas[0] ?? '',
           hasta: fechas[fechas.length - 1] ?? '',
+          archivos: listos.flatMap((a) => (a.extracto ? [archivoDe(a, a.extracto)] : [])),
         },
       });
       setFase({ paso: 'informe', inf: informe(filas), pendientesNomina: filas.ingresos.length });
@@ -696,10 +870,11 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>Cómo descargar los extractos</summary>
           <p><strong>Revolut:</strong> en la app, cuenta en euros → ⋯ → Extracto → formato PDF (o Excel/CSV) → elige el periodo.</p>
           <p><strong>Santander:</strong> banca online → Cuentas → Movimientos → elige las fechas → Descargar → Excel.</p>
-          <p>Sirven PDF con texto (los que descargas del banco). Un PDF escaneado o una foto no se puede leer.</p>
+          <p>Lo más fiable es el PDF que descargas del banco. Un PDF escaneado o una foto se puede leer con OCR en el dispositivo.</p>
         </details>
-        <button type="button" className="btn primario bloque" disabled={ocupado !== null} onClick={() => entrada.current?.click()}>{ocupado ?? 'Elegir PDF, Excel o CSV'}</button>
-        <input ref={entrada} type="file" multiple accept=".pdf,.csv,.xlsx,.txt,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
+        <button type="button" className="btn primario bloque" disabled={ocupado !== null} onClick={() => entrada.current?.click()}>{ocupado ?? 'Elegir PDF, Excel, CSV o foto'}</button>
+        <PegarTexto onLeido={(a) => setArchivos((l) => [...l, a])} />
+        <input ref={entrada} type="file" multiple accept=".pdf,.csv,.xlsx,.txt,.jpg,.jpeg,.png,.webp,image/*,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" tabIndex={-1} aria-label="Archivos de extracto" onChange={(e) => void anadir(e.target.files)} />
       </section>
 
       {archivos.map((a, i) => (
@@ -710,6 +885,13 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           onAceptar={(v) => actualizar(i, (x) => ({ ...x, aceptarSinCuadre: v }))}
           onQuitar={() => setArchivos((l) => l.filter((_, j) => j !== i))}
           onMapeo={(m) => actualizar(i, (x) => ({ ...x, extracto: extractoDe(extraerMovimientos(x.filas, m, 'manual')) }))}
+          onOcr={() => {
+            setOcupado('Reconociendo texto…');
+            void leerConOcr(a, (t) => setOcupado(t)).then((nuevo) => {
+              actualizar(i, () => nuevo);
+              setOcupado(null);
+            });
+          }}
           onContrasena={(c) => {
             const protegido = a.pdfProtegido;
             if (!protegido) return;

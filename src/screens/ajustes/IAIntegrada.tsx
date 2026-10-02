@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { ejemplosDeEvaluacion, evaluarModelo } from '../../domain/importacion/iaLocal';
+import { useEstado } from '../../estado';
 import { Aviso, Barra, Selector } from '../../ui/base';
 
 type Modulo = typeof import('../../ia/motorLocal');
@@ -80,7 +82,7 @@ export function IAIntegrada() {
       {soporte?.ok && mod && (
         <>
           <Selector etiqueta="Modelo" valor={modelo} onCambio={(v) => void cambiarModelo(v)}>
-            {mod.MODELOS.map((m) => <option key={m.id} value={m.id}>{m.nombre} · {m.descarga} · para {m.recomendadoPara}</option>)}
+            {mod.MODELOS.map((m) => <option key={m.id} value={m.id}>{m.nombre} · memoria {m.memoria} · {m.recomendadoPara}</option>)}
           </Selector>
           <p className="peq">Estado: <strong>{descargado === null ? '…' : descargado ? 'descargado en este dispositivo ✓' : 'sin descargar'}</strong></p>
           {progreso && (
@@ -97,8 +99,103 @@ export function IAIntegrada() {
             {descargado && <button type="button" className="btn peligro" disabled={progreso !== null} onClick={() => void borrar()}>Borrar modelo</button>}
           </div>
           {!descargado && <p className="peq muted">La descarga es grande: hazla con wifi. Queda guardada para usarla sin conexión.</p>}
+          {descargado && <Evaluacion mod={mod} modelo={modelo} ocupado={progreso !== null} />}
         </>
       )}
     </section>
+  );
+}
+
+const CLAVE_EVALUACIONES = 'finanzas.evaluacionesIA';
+
+interface Evaluado {
+  aciertos: number;
+  total: number;
+  segundos: number;
+  fecha: string;
+}
+
+function leerEvaluaciones(): Record<string, Evaluado> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(CLAVE_EVALUACIONES) ?? '{}');
+    return typeof v === 'object' && v !== null ? (v as Record<string, Evaluado>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Mide el acierto real del modelo con tus comercios ya clasificados, en el dispositivo.
+ * Sirve para elegir el modelo con datos, no con suposiciones.
+ */
+function Evaluacion({ mod, modelo, ocupado }: { mod: Modulo; modelo: string; ocupado: boolean }) {
+  const { datos } = useEstado();
+  const [estado, setEstado] = useState<{ hechos: number; total: number } | null>(null);
+  const [resultado, setResultado] = useState<Awaited<ReturnType<typeof evaluarModelo>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [historial, setHistorial] = useState(leerEvaluaciones);
+  const ejemplos = ejemplosDeEvaluacion(datos.gastos, datos.categorias);
+
+  async function evaluar() {
+    setError(null);
+    setResultado(null);
+    setEstado({ hechos: 0, total: ejemplos.length });
+    try {
+      const motor = await mod.cargarMotor(modelo);
+      const r = await evaluarModelo(motor, ejemplos, datos.categorias, (hechos, total) => setEstado({ hechos, total }));
+      setResultado(r);
+      const nuevo = { ...leerEvaluaciones(), [modelo]: { aciertos: r.aciertos, total: r.total, segundos: r.segundos, fecha: new Date().toISOString().slice(0, 10) } };
+      try {
+        localStorage.setItem(CLAVE_EVALUACIONES, JSON.stringify(nuevo));
+      } catch {
+        // Sin almacenamiento local: el resultado se ve igualmente.
+      }
+      setHistorial(nuevo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEstado(null);
+    }
+  }
+
+  const nombre = (id: string) => mod.MODELOS.find((m) => m.id === id)?.nombre ?? id;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3 className="peq" style={{ marginBottom: 4 }}>Evaluar con mis datos</h3>
+      <p className="peq muted">
+        Pide al modelo que clasifique {ejemplos.length} comercios que ya has clasificado tú y cuenta los aciertos. Todo en este dispositivo. Prueba varios modelos y quédate con el que más acierte en un tiempo razonable.
+      </p>
+      {ejemplos.length < 5 ? (
+        <p className="peq">Hacen falta al menos 5 comercios importados y clasificados. Importa algún extracto primero.</p>
+      ) : (
+        <button type="button" className="btn bloque" disabled={ocupado || estado !== null} onClick={() => void evaluar()}>
+          {estado ? `Evaluando… ${estado.hechos} de ${estado.total}` : 'Evaluar este modelo'}
+        </button>
+      )}
+      {error && <Aviso>{error}</Aviso>}
+      {resultado && (
+        <div role="status">
+          <p className="peq">
+            <strong>{resultado.aciertos} de {resultado.total}</strong> aciertos ({Math.round((resultado.aciertos / Math.max(1, resultado.total)) * 100)} %) en {resultado.segundos.toLocaleString('es-ES')} s
+            {resultado.sinRespuesta > 0 && ` · ${resultado.sinRespuesta} sin respuesta válida`}.
+          </p>
+          {resultado.fallos.length > 0 && (
+            <ul className="peq muted" style={{ paddingLeft: 18, margin: 0 }}>
+              {resultado.fallos.slice(0, 10).map((f) => <li key={f.comercio}>{f.comercio}: dijo {f.propuesto}, era {f.esperado}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+      {Object.keys(historial).length > 0 && (
+        <ul className="lista">
+          {Object.entries(historial).map(([id, h]) => (
+            <li key={id} className="fila">
+              <span className="principal">{nombre(id)}<span className="secundario" style={{ display: 'block' }}>{h.fecha} · {h.segundos.toLocaleString('es-ES')} s</span></span>
+              <strong>{Math.round((h.aciertos / Math.max(1, h.total)) * 100)} %</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

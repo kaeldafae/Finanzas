@@ -5,3 +5,6 @@ coverage
 *.tsbuildinfo
 .DS_Store
 *.log
+e2e/.generados
+playwright-report
+test-results

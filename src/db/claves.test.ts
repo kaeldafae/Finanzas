@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claveSuelta } from '../domain/importacion/huella';
 import { BaseDatos } from './db';
-import { clavesImportadas } from './operaciones';
+import { aplicarNomina, aportarObjetivo, clavesImportadas, guardarObjetivo } from './operaciones';
 
 let base: BaseDatos;
 let n = 0;
@@ -38,5 +38,33 @@ describe('movimientos ya importados por cuenta, día e importe', () => {
     expect(m.get(claveSuelta('Revolut', '2026-03-08', -100))).toBeUndefined();
     expect(m.get(claveSuelta('Revolut', '2026-03-08', -999))).toBeUndefined();
     expect(m.get(claveSuelta('Revolut', '2026-03-08', -777))).toBeUndefined();
+  });
+});
+
+describe('nómina aplicada al ingreso del banco', () => {
+  const nomina = { bruto: 185000, seguridadSocial: 12005, irpf: 22100, otrasDeducciones: 0, neto: 150895, periodo: { anio: 2026, mes: 5 }, avisos: [] };
+
+  it('completa el ingreso importado del mes siguiente con el mismo neto', async () => {
+    await base.ingresos.add({ id: 'banco', anio: 2026, mes: 6, pagadorId: 'p', bruto: 150895, seguridadSocial: 0, retencionIRPF: 0, neto: 150895, netoManual: false, estado: 'Real', nota: '', pendienteNomina: true, huella: 'h' });
+    const r = await aplicarNomina(nomina, { anio: 2026, mes: 5 }, 'p', base);
+    expect(r).toEqual({ accion: 'completada', ingresoId: 'banco' });
+    const i = await base.ingresos.get('banco');
+    expect(i).toMatchObject({ bruto: 185000, seguridadSocial: 12005, retencionIRPF: 22100, neto: 150895, netoManual: false, huella: 'h' });
+    expect(i?.pendienteNomina).toBeUndefined();
+  });
+
+  it('sin ingreso del banco, lo crea en el mes de la nómina', async () => {
+    const r = await aplicarNomina(nomina, { anio: 2026, mes: 5 }, 'p', base);
+    expect(r.accion).toBe('creada');
+    expect(await base.ingresos.get(r.ingresoId)).toMatchObject({ anio: 2026, mes: 5, neto: 150895, estado: 'Real' });
+  });
+});
+
+describe('objetivos', () => {
+  it('las aportaciones suman y nunca dejan el objetivo en negativo', async () => {
+    await guardarObjetivo({ id: 'o', nombre: 'Viaje', importeObjetivo: 100000, importeActual: 0, aportacionMensual: 10000, fechaObjetivo: null, archivado: false }, base);
+    await aportarObjetivo('o', 25000, base);
+    await aportarObjetivo('o', -40000, base);
+    expect((await base.objetivos.get('o'))?.importeActual).toBe(0);
   });
 });

@@ -1,7 +1,9 @@
 import { sumar, type Centimos } from '../dinero';
 import {
   idMes,
+  type ArchivoImportado,
   type ConceptoExtra,
+  type Evidencia,
   type Gasto,
   type Ingreso,
   type IngresoExtra,
@@ -20,6 +22,8 @@ export interface ExtractoLeido {
   cuenta: string;
   lectura: LecturaExtracto;
   cuadre: ResultadoCuadre;
+  /** Archivo de origen (huella y comprobaciones) para la evidencia de cada movimiento. */
+  archivo?: ArchivoImportado;
 }
 
 export interface MovimientoPropuesto {
@@ -42,6 +46,8 @@ export interface MovimientoPropuesto {
   pareja: string | null;
   /** Mismo comercio en varios meses con importe parecido. */
   recurrente: boolean;
+  /** De qué archivo, página y fila sale. */
+  evidencia?: Evidencia;
 }
 
 const DIAS_EMPAREJAR = 3;
@@ -136,13 +142,18 @@ export async function prepararImportacion(
       const porImporte = ya(m.importe);
       const porTotal = m.comision > 0 && ya(m.importe - m.comision);
       const duplicado = existentes.has(id) || porImporte || porTotal;
-      out.push({ id, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: m.importe, concepto: m.concepto, propuesta: clasificar(m, reglas), duplicado, pareja: null, recurrente: false });
+      const evidencia: Evidencia | undefined = ex.archivo ? { archivo: ex.archivo.huella, fila: m.fila, ...(m.pagina ? { pagina: m.pagina } : {}) } : undefined;
+      out.push({
+        id, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: m.importe, concepto: m.concepto, propuesta: clasificar(m, reglas), duplicado, pareja: null, recurrente: false,
+        ...(evidencia ? { evidencia } : {}),
+      });
       if (m.comision > 0) {
         const idComision = `${id}-comision`;
         out.push({
           id: idComision, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: -m.comision, concepto: `Comisión ${ex.cuenta}`,
           propuesta: { destino: 'gasto', categoria: 'comisiones', categoriaId: null, tipoGasto: 'Variable', pagador: null, devolucion: false, confianza: 0.98, motivo: 'Comisión de la operación', limpio: { comercio: `Comisión ${ex.cuenta}`, clave: '', busqueda: '', persona: null } },
           duplicado: duplicado || existentes.has(idComision), pareja: null, recurrente: false,
+          ...(evidencia ? { evidencia } : {}),
         });
       }
     });
@@ -233,7 +244,7 @@ export function construirFilas(movs: readonly MovimientoPropuesto[], decisiones:
     if (!d || !d.incluir || m.duplicado) continue;
     const error = validarDecision(m, d);
     if (error) throw new Error(`${m.fecha} ${m.propuesta.limpio.comercio}: ${error}`);
-    const comun = { anio: m.anio, mes: m.mes, fecha: m.fecha, cuenta: m.cuenta, huella: m.id };
+    const comun = { anio: m.anio, mes: m.mes, fecha: m.fecha, cuenta: m.cuenta, huella: m.id, ...(m.evidencia ? { evidencia: m.evidencia } : {}) };
     meses.set(idMes(m.anio, m.mes), { anio: m.anio, mes: m.mes });
     const abs = Math.abs(m.importe);
     switch (d.destino) {
@@ -259,7 +270,10 @@ export function construirFilas(movs: readonly MovimientoPropuesto[], decisiones:
       case 'interno':
       case 'hucha':
       case 'divisa':
-        r.traspasos.push({ id: m.id, anio: m.anio, mes: m.mes, fecha: m.fecha, cuenta: m.cuenta, importe: m.importe, tipo: d.destino, ...(m.pareja ? { pareja: m.pareja } : {}) });
+        r.traspasos.push({
+          id: m.id, anio: m.anio, mes: m.mes, fecha: m.fecha, cuenta: m.cuenta, importe: m.importe, tipo: d.destino,
+          ...(m.pareja ? { pareja: m.pareja } : {}), ...(m.evidencia ? { evidencia: m.evidencia } : {}),
+        });
         break;
     }
   }

@@ -128,9 +128,96 @@ describe('PDF de extracto', () => {
     expect(leerPdfExtracto([], 3).lectura).toBeNull();
     const r = leerPdfExtracto(linea(1, 700, [[40, 'Carta de bienvenida'], [40, 'Hola']]), 1);
     expect(r.lectura).toBeNull();
-    expect(r.diagnostico).toContain('no encontrada');
+    expect(r.diagnostico).toContain('columnas ninguna');
     const ok = leerPdfExtracto(extractoRevolut(), 2);
     expect(ok.diagnostico).not.toMatch(/Mercadona|Juan|45,30/);
+  });
+});
+
+describe('PDF con títulos difíciles', () => {
+  const resumen = [
+    ...linea(1, 760, [[40, 'Revolut'], [40, 'Resumen del saldo']]),
+    ...linea(1, 740, [[40, 'Producto'], [200, 'Saldo inicial', 'der'], [300, 'Dinero saliente', 'der'], [400, 'Dinero entrante', 'der'], [500, 'Saldo final', 'der']]),
+    ...linea(1, 725, [[40, 'Cuenta'], [200, '100,00 €', 'der'], [300, '57,80 €', 'der'], [400, '1.200,00 €', 'der'], [500, '1.242,20 €', 'der']]),
+  ];
+  const filas = (y0: number) => [
+    ...mov(1, y0, '2 mar 2026', 'Mercadona', '45,30 €', '', '54,70 €'),
+    ...mov(1, y0 - 18, '3 mar 2026', 'Nómina', '', '1.200,00 €', '1.254,70 €'),
+    ...mov(1, y0 - 36, '4 mar 2026', 'Bar Can Pep', '12,50 €', '', '1.242,20 €'),
+  ];
+  const importes = (r: ReturnType<typeof leerPdfExtracto>) => r.lectura?.movimientos.map((m) => m.importe);
+
+  it('todos los títulos en un solo fragmento', () => {
+    const textos = [...resumen, { texto: 'Fecha        Descripción                                   Dinero saliente     Dinero entrante              Saldo', x: 40, y: 650, ancho: 510, alto: 9, pagina: 1 }, ...filas(630)];
+    const r = leerPdfExtracto(textos, 1);
+    expect(importes(r)).toEqual([-4530, 120000, -1250]);
+    expect(r.control?.ok).toBe(true);
+  });
+
+  it('títulos partidos en dos renglones', () => {
+    const textos = [
+      ...resumen,
+      ...linea(1, 655, [[X.fecha, 'Fecha'], [X.desc, 'Descripción'], [X.sale, 'Dinero', 'der'], [X.entra, 'Dinero', 'der'], [X.saldo, 'Saldo', 'der']]),
+      ...linea(1, 646, [[X.sale, 'saliente', 'der'], [X.entra, 'entrante', 'der']]),
+      ...filas(626),
+    ];
+    const r = leerPdfExtracto(textos, 1);
+    expect(importes(r)).toEqual([-4530, 120000, -1250]);
+    expect(r.control?.ok).toBe(true);
+  });
+
+  it('sin títulos reconocibles: columnas por la alineación, verificadas con saldo y resumen', () => {
+    const textos = [...resumen, ...linea(1, 650, [[X.fecha, 'Día'], [X.desc, 'Qué'], [X.sale, 'Sale', 'der'], [X.entra, 'Entra', 'der'], [X.saldo, 'Queda', 'der']]), ...filas(630)];
+    const r = leerPdfExtracto(textos, 1);
+    expect(importes(r)).toEqual([-4530, 120000, -1250]);
+    expect(r.control?.ok).toBe(true);
+    expect(r.diagnostico).toContain('Intento alineación');
+  });
+
+  it('fecha y concepto en el mismo fragmento', () => {
+    const textos = [
+      ...resumen,
+      ...cabecera(1, 650),
+      ...linea(1, 630, [[X.fecha, '2 mar 2026 Mercadona'], [X.sale, '45,30 €', 'der'], [X.saldo, '54,70 €', 'der']]),
+      ...linea(1, 612, [[X.fecha, '3 mar 2026 Nómina'], [X.entra, '1.200,00 €', 'der'], [X.saldo, '1.254,70 €', 'der']]),
+      ...linea(1, 594, [[X.fecha, '4 mar 2026 Bar Can Pep'], [X.sale, '12,50 €', 'der'], [X.saldo, '1.242,20 €', 'der']]),
+    ];
+    const r = leerPdfExtracto(textos, 1);
+    expect(r.lectura?.movimientos.map((m) => [m.fecha, m.concepto])).toEqual([
+      ['2026-03-02', 'Mercadona'],
+      ['2026-03-03', 'Nómina'],
+      ['2026-03-04', 'Bar Can Pep'],
+    ]);
+  });
+
+  it('el diagnóstico muestra la estructura sin datos', () => {
+    const textos = [...resumen, ...linea(1, 650, [[X.fecha, 'Día'], [X.desc, 'Qué']]), ...filas(630)];
+    const d = leerPdfExtracto(textos, 1).diagnostico;
+    expect(d).toContain('fecha@');
+    expect(d).toContain('importe@');
+    expect(d).not.toMatch(/Mercadona|Nómina|Can Pep|45,30|1\.200/);
+  });
+});
+
+describe('PDF con varios productos', () => {
+  it('se queda con la cadena de saldos que coincide con la cuenta del resumen', () => {
+    const textos = [
+      ...linea(1, 800, [[40, 'Revolut']]),
+      ...linea(1, 740, [[40, 'Producto'], [200, 'Saldo inicial', 'der'], [300, 'Dinero saliente', 'der'], [400, 'Dinero entrante', 'der'], [500, 'Saldo final', 'der']]),
+      ...linea(1, 725, [[40, 'Cuenta (Corriente)'], [200, '100,00 €', 'der'], [300, '57,80 €', 'der'], [400, '0,00 €', 'der'], [500, '42,20 €', 'der']]),
+      ...linea(1, 710, [[40, 'Depósito a plazo'], [200, '500,00 €', 'der'], [300, '0,00 €', 'der'], [400, '1,25 €', 'der'], [500, '501,25 €', 'der']]),
+      ...cabecera(1, 650),
+      ...mov(1, 630, '2 mar 2026', 'Mercadona', '45,30 €', '', '54,70 €'),
+      ...mov(1, 612, '4 mar 2026', 'Bar Can Pep', '12,50 €', '', '42,20 €'),
+      // Otro producto sin título reconocible, con su propia secuencia de saldos.
+      ...linea(1, 560, [[40, 'Producto 2']]),
+      ...cabecera(1, 540),
+      ...mov(1, 520, '31 mar 2026', 'Intereses', '', '1,25 €', '501,25 €'),
+    ];
+    const r = leerPdfExtracto(textos, 1);
+    expect(r.lectura?.movimientos.map((m) => m.importe)).toEqual([-4530, -1250]);
+    expect(r.control?.ok).toBe(true);
+    expect(r.lectura?.descartados.some((d) => d.motivo.includes('otras cuentas'))).toBe(true);
   });
 });
 

@@ -9,8 +9,25 @@ function aCelda(v: unknown): Celda {
   return null;
 }
 
-/** Algunos bancos exportan CSV en Windows-1252 (tildes y ñ). Se prueba UTF-8 estricto y, si falla, Windows-1252. */
-function decodificar(buffer: ArrayBuffer): string {
+/**
+ * Codificación del texto: UTF-16 (Excel «Texto Unicode»), UTF-8 o, si no es UTF-8 válido, Windows-1252
+ * (algunos bancos exportan así las tildes y la ñ).
+ */
+export function decodificar(buffer: ArrayBuffer): string {
+  const b = new Uint8Array(buffer);
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(buffer);
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(buffer);
+  // UTF-16 sin marca: muchos bytes nulos en posiciones impares (le) o pares (be).
+  const muestra = b.subarray(0, 2000);
+  let paresNulos = 0;
+  let imparesNulos = 0;
+  muestra.forEach((v, i) => {
+    if (v !== 0) return;
+    if (i % 2) imparesNulos++;
+    else paresNulos++;
+  });
+  if (imparesNulos > muestra.length / 4) return new TextDecoder('utf-16le').decode(buffer);
+  if (paresNulos > muestra.length / 4) return new TextDecoder('utf-16be').decode(buffer);
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
   } catch {

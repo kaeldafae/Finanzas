@@ -5,6 +5,7 @@ import { flujoMes, SIN_CUENTA } from '../domain/flujo';
 import { idMes, importeGasto, nombreMes, sumarMeses, type Gasto, type Ingreso, type IngresoExtra, type Periodo, type TipoGasto } from '../domain/modelo';
 import { CLAVES_REPARTO, ETIQUETAS_REPARTO } from '../domain/reparto';
 import { resumirMes } from '../domain/resumen';
+import { variacionesMes } from '../domain/variaciones';
 import { confirmarMes, copiarFijosMesAnterior, marcarIngresoReal } from '../db/operaciones';
 import { useEstado } from '../estado';
 import { Aviso, Barra, Importe } from '../ui/base';
@@ -65,6 +66,8 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
     setMensaje(n > 0 ? `Copiados ${n} gastos fijos de ${nombreMes(anterior.mes)}.` : 'No había gastos fijos que copiar.');
   }
 
+  const variaciones = variacionesMes(indice, datos.categorias, periodo);
+
   const subtitulo = resumen.estado === 'vacio' ? 'Sin registrar' : resumen.estado === 'previsto' ? 'Previsto' : 'Real';
 
   return (
@@ -72,6 +75,7 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
       <SelectorMes periodo={periodo} onCambio={(p) => { setMensaje(null); onCambio(p); }} subtitulo={subtitulo} />
 
       {mensaje && <Aviso tipo="info">{mensaje}</Aviso>}
+      <a className="btn bloque" href="#/preguntar" style={{ marginBottom: 12 }}>Preguntar sobre mis finanzas</a>
 
       <section className="card" aria-labelledby="t-resultado">
         <h2 id="t-resultado">Resultado del mes</h2>
@@ -213,6 +217,16 @@ export function PantallaMes({ periodo, onCambio }: { periodo: Periodo; onCambio:
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {variaciones.length > 0 && (
+        <section className="card" aria-labelledby="t-var">
+          <h2 id="t-var">Cambios este mes</h2>
+          <ul className="peq" style={{ paddingLeft: 18, margin: 0 }}>
+            {variaciones.map((v) => <li key={`${v.tipo}-${v.texto}`}>{v.texto}</li>)}
+          </ul>
+          <p className="peq muted" style={{ marginTop: 8 }}>Comparado con la mediana de tus meses anteriores. Es información, no un juicio: tú decides si es un problema.</p>
         </section>
       )}
 

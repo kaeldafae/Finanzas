@@ -14,6 +14,8 @@ import {
   type Presupuesto,
   type Regla,
   type Traspaso,
+  type Compromiso,
+  type ObjetivoAhorro,
   importeGasto,
 } from './modelo';
 import { repartirResultado, type ReglasReparto, type Reparto } from './reparto';
@@ -29,6 +31,8 @@ export interface DatosFinancieros {
   traspasos: Traspaso[];
   presupuestos: Presupuesto[];
   importaciones: Importacion[];
+  compromisos: Compromiso[];
+  objetivos: ObjetivoAhorro[];
 }
 
 /**

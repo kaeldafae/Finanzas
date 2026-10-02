@@ -37,9 +37,34 @@ jobs:
         with:
           path: dist
 
+  e2e:
+    # Pruebas en navegador (Chromium) de la app compilada: importación, PDF, OCR, nóminas,
+    # sincronización cifrada con un GitHub simulado y las pantallas de previsión, ahorro y preguntas.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+        env:
+          CI: true
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: informe-e2e
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, e2e]
     runs-on: ubuntu-latest
     permissions:
       pages: write

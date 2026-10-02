@@ -24,6 +24,29 @@ export interface Pagador extends MetaSync {
   archivado: boolean;
 }
 
+/**
+ * De dónde sale un movimiento importado: qué archivo (huella SHA-256 abreviada), qué página y línea,
+ * cómo se leyó y qué comprobaciones superó. No se guarda el documento ni el concepto del banco.
+ */
+export interface Evidencia {
+  /** Primeros 16 caracteres del SHA-256 del archivo. */
+  archivo: string;
+  /** Fila del archivo (CSV/Excel) o línea de la tabla (PDF). */
+  fila: number;
+  pagina?: number;
+}
+
+export type MetodoLectura = 'cabeceras' | 'contenido' | 'pdf' | 'manual' | 'texto' | 'ocr' | 'nomina';
+
+/** Archivo leído en una importación, con las comprobaciones que superó. */
+export interface ArchivoImportado {
+  nombre: string;
+  huella: string;
+  metodo: MetodoLectura;
+  /** Por ejemplo: "saldo fila a fila", "resumen del extracto". */
+  verificaciones: string[];
+}
+
 export type EstadoIngreso = 'Real' | 'Previsto';
 
 export interface Ingreso extends MetaSync {
@@ -47,6 +70,7 @@ export interface Ingreso extends MetaSync {
   huella?: string;
   /** Importación de la que viene (para poder deshacerla). */
   importacion?: string;
+  evidencia?: Evidencia;
 }
 
 export type ConceptoExtra = 'Propinas' | 'Otro';
@@ -63,6 +87,7 @@ export interface IngresoExtra extends MetaSync {
   cuenta?: string;
   huella?: string;
   importacion?: string;
+  evidencia?: Evidencia;
 }
 
 export type TipoGasto = 'Fijo' | 'Variable' | 'Extra';
@@ -104,6 +129,7 @@ export interface Gasto extends MetaSync {
   /** Devolución de una compra: resta en su categoría. */
   devolucion?: boolean;
   importacion?: string;
+  evidencia?: Evidencia;
 }
 
 /** Importe con signo de un gasto: las devoluciones restan. */
@@ -135,6 +161,7 @@ export interface Traspaso extends MetaSync {
   /** Huella del movimiento emparejado en la otra cuenta, si se encontró. */
   pareja?: string;
   importacion?: string;
+  evidencia?: Evidencia;
 }
 
 /** Registro de cada importación: permite deshacerla entera. */
@@ -148,6 +175,37 @@ export interface Importacion extends MetaSync {
   desde: string;
   hasta: string;
   deshecha?: boolean;
+  archivos?: ArchivoImportado[];
+}
+
+export type Periodicidad = 'mensual' | 'trimestral' | 'anual';
+export const PERIODICIDADES: readonly Periodicidad[] = ['mensual', 'trimestral', 'anual'];
+
+/** Pago que se repite (alquiler, recibos, suscripciones, cuotas). Alimenta la previsión. */
+export interface Compromiso extends MetaSync {
+  id: Id;
+  nombre: string;
+  categoriaId: Id;
+  importe: Centimos;
+  periodicidad: Periodicidad;
+  /** Mes del último cargo conocido: con la periodicidad, da los siguientes. */
+  ultimoAnio: number;
+  ultimoMes: number;
+  activo: boolean;
+  origen: 'detectado' | 'manual';
+}
+
+/** Objetivo de ahorro (viaje, compra, colchón aparte...). */
+export interface ObjetivoAhorro extends MetaSync {
+  id: Id;
+  nombre: string;
+  importeObjetivo: Centimos;
+  /** Lo ya apartado. */
+  importeActual: Centimos;
+  aportacionMensual: Centimos;
+  /** "2027-06" o null si no hay fecha. */
+  fechaObjetivo: string | null;
+  archivado: boolean;
 }
 
 /** Presupuesto mensual de una categoría. */

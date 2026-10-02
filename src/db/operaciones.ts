@@ -7,12 +7,14 @@ import {
   sumarMeses,
   type Ajustes,
   type Categoria,
+  type Compromiso,
   type Gasto,
   type Ingreso,
   type IngresoExtra,
   type MesRegistro,
   type Importacion,
   type MetaSync,
+  type ObjetivoAhorro,
   type Pagador,
   type Periodo,
   type Presupuesto,
@@ -23,7 +25,8 @@ import { crearCopia, type CopiaSeguridad } from '../domain/copia';
 import type { DatosFinancieros } from '../domain/resumen';
 import { TABLAS_SYNC, type Instantanea } from '../domain/sync';
 import { claveSuelta } from '../domain/importacion/huella';
-import { db, marcaTiempo, notificarCambio, nuevoId, normalizarAjustes, sellar, type BaseDatos } from './db';
+import { emparejarNomina, type DatosNomina } from '../domain/importacion/nomina';
+import { db, marcaTiempo, notificarCambio, nuevoId, normalizarAjustes, sellar, tablasDatos, type BaseDatos } from './db';
 
 /*
  * Reglas de escritura (necesarias para la sincronización):
@@ -44,7 +47,7 @@ interface TablaSimple<T> {
 // --- Lectura -----------------------------------------------------------------------------
 
 export async function leerTodo(base: BaseDatos = db): Promise<DatosFinancieros> {
-  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones] = await Promise.all([
+  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, compromisos, objetivos] = await Promise.all([
     base.pagadores.filter(vivo).toArray(),
     base.categorias.orderBy('orden').filter(vivo).toArray(),
     base.ingresos.filter(vivo).toArray(),
@@ -55,8 +58,10 @@ export async function leerTodo(base: BaseDatos = db): Promise<DatosFinancieros> 
     base.traspasos.filter(vivo).toArray(),
     base.presupuestos.filter(vivo).toArray(),
     base.importaciones.orderBy('fecha').reverse().filter(vivo).toArray(),
+    base.compromisos.filter(vivo).toArray(),
+    base.objetivos.filter(vivo).toArray(),
   ]);
-  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones };
+  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, compromisos, objetivos };
 }
 
 export async function leerAjustes(base: BaseDatos = db): Promise<Ajustes> {
@@ -65,7 +70,7 @@ export async function leerAjustes(base: BaseDatos = db): Promise<Ajustes> {
 
 /** Todo, incluidas las marcas de borrado: es lo que se sincroniza. */
 export async function leerInstantanea(base: BaseDatos = db): Promise<Instantanea> {
-  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, ajustes] = await Promise.all([
+  const [pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, compromisos, objetivos, ajustes] = await Promise.all([
     base.pagadores.toArray(),
     base.categorias.toArray(),
     base.ingresos.toArray(),
@@ -76,9 +81,11 @@ export async function leerInstantanea(base: BaseDatos = db): Promise<Instantanea
     base.traspasos.toArray(),
     base.presupuestos.toArray(),
     base.importaciones.toArray(),
+    base.compromisos.toArray(),
+    base.objetivos.toArray(),
     leerAjustes(base),
   ]);
-  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, ajustes };
+  return { pagadores, categorias, ingresos, extras, gastos, meses, reglas, traspasos, presupuestos, importaciones, compromisos, objetivos, ajustes };
 }
 
 /**
@@ -291,7 +298,7 @@ export async function moverCategoria(id: string, direccion: -1 | 1, base: BaseDa
 // --- Copias de seguridad -------------------------------------------------------------------
 
 export async function exportarCopia(base: BaseDatos = db, ahora = new Date()): Promise<CopiaSeguridad> {
-  return base.transaction('r', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.importaciones, base.ajustes], async () => {
+  return base.transaction('r', tablasDatos(base), async () => {
     const [datos, ajustes] = await Promise.all([leerTodo(base), leerAjustes(base)]);
     return crearCopia(datos, ajustes, ahora);
   });
@@ -310,7 +317,7 @@ function idsRepetidos(filas: ReadonlyArray<{ id: string }>): boolean {
  */
 export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db): Promise<void> {
   const d = copia.datos;
-  await base.transaction('rw', [base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas, base.traspasos, base.presupuestos, base.importaciones, base.ajustes], async () => {
+  await base.transaction('rw', tablasDatos(base), async () => {
     const marca = marcaTiempo();
     for (const t of TABLAS_SYNC) {
       await base.table<MetaSync & { id: string }, string>(t).toCollection().modify((f) => {
@@ -320,7 +327,7 @@ export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db)
         }
       });
     }
-    for (const filas of [d.pagadores, d.categorias, d.ingresos, d.extras, d.gastos, d.meses, d.reglas, d.traspasos, d.presupuestos, d.importaciones]) {
+    for (const filas of [d.pagadores, d.categorias, d.ingresos, d.extras, d.gastos, d.meses, d.reglas, d.traspasos, d.presupuestos, d.importaciones, d.compromisos, d.objetivos]) {
       if (idsRepetidos(filas)) throw new Error('La copia tiene identificadores repetidos.');
     }
     await base.pagadores.bulkPut(d.pagadores.map(sellar));
@@ -333,6 +340,8 @@ export async function importarCopia(copia: CopiaSeguridad, base: BaseDatos = db)
     await base.traspasos.bulkPut(d.traspasos.map(sellar));
     await base.presupuestos.bulkPut(d.presupuestos.map(sellar));
     await base.importaciones.bulkPut(d.importaciones.map(sellar));
+    await base.compromisos.bulkPut(d.compromisos.map(sellar));
+    await base.objetivos.bulkPut(d.objetivos.map(sellar));
     const actuales = await leerAjustes(base);
     await base.ajustes.put({
       ...normalizarAjustes(d.ajustes),
@@ -478,5 +487,68 @@ export async function guardarPresupuestos(lista: ReadonlyArray<{ categoriaId: st
 
 export async function borrarRegla(id: string, base: BaseDatos = db): Promise<void> {
   await base.transaction('rw', base.reglas, () => marcarBorrado<Regla>(base.reglas, id));
+  notificarCambio();
+}
+
+// --- Nóminas --------------------------------------------------------------------------------
+
+export interface ResultadoNomina {
+  accion: 'completada' | 'creada';
+  ingresoId: string;
+}
+
+/**
+ * Completa con la nómina el ingreso que llegó del banco (mismo neto, ese mes o el siguiente) o, si no
+ * existe, crea el ingreso. El neto del banco no se toca: es el dato verificado.
+ */
+export async function aplicarNomina(n: DatosNomina, periodo: Periodo, pagadorId: string, base: BaseDatos = db): Promise<ResultadoNomina> {
+  const r = await base.transaction('rw', base.ingresos, async () => {
+    const ingresos = await base.ingresos.toArray();
+    const par = emparejarNomina(n, periodo, ingresos);
+    const cotizacion = { bruto: n.bruto, seguridadSocial: n.seguridadSocial, retencionIRPF: n.irpf };
+    const netoManual = n.bruto - n.seguridadSocial - n.irpf !== n.neto;
+    if (par) {
+      const { pendienteNomina: _p, ...resto } = par;
+      await base.ingresos.put(sellar({ ...resto, ...cotizacion, netoManual, nota: par.nota || 'Completado con la nómina' }));
+      return { accion: 'completada' as const, ingresoId: par.id };
+    }
+    const id = nuevoId();
+    await base.ingresos.add(
+      sellar<Ingreso>({ id, anio: periodo.anio, mes: periodo.mes, pagadorId, ...cotizacion, neto: n.neto, netoManual, estado: 'Real', nota: 'Desde la nómina (PDF)' }),
+    );
+    return { accion: 'creada' as const, ingresoId: id };
+  });
+  notificarCambio();
+  return r;
+}
+
+// --- Pagos recurrentes y objetivos ------------------------------------------------------------
+
+export async function guardarCompromiso(c: Omit<Compromiso, 'id'> & { id?: string }, base: BaseDatos = db): Promise<void> {
+  await base.compromisos.put(sellar({ ...c, id: c.id ?? nuevoId() }));
+  notificarCambio();
+}
+
+export async function borrarCompromiso(id: string, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.compromisos, () => marcarBorrado<Compromiso>(base.compromisos, id));
+  notificarCambio();
+}
+
+export async function guardarObjetivo(o: Omit<ObjetivoAhorro, 'id'> & { id?: string }, base: BaseDatos = db): Promise<void> {
+  await base.objetivos.put(sellar({ ...o, id: o.id ?? nuevoId() }));
+  notificarCambio();
+}
+
+/** Suma (o resta, si es negativa) una aportación a lo ya apartado. Nunca baja de 0. */
+export async function aportarObjetivo(id: string, importe: Centimos, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.objetivos, async () => {
+    const o = await base.objetivos.get(id);
+    if (o && !o.borrado) await base.objetivos.put(sellar({ ...o, importeActual: Math.max(0, o.importeActual + importe) }));
+  });
+  notificarCambio();
+}
+
+export async function borrarObjetivo(id: string, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.objetivos, () => marcarBorrado<ObjetivoAhorro>(base.objetivos, id));
   notificarCambio();
 }
