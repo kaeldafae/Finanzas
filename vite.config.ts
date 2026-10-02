@@ -7,7 +7,7 @@ const base = process.env.BASE_PATH ?? '/';
 
 /**
  * Política de seguridad de contenido solo en producción (el servidor de desarrollo usa scripts inline).
- * connect-src 'self' impide que cualquier código envíe datos fuera del dispositivo.
+ * connect-src solo permite este origen y api.github.com (sincronización cifrada): ningún otro destino.
  */
 function csp(): Plugin {
   const politica = [
@@ -16,7 +16,8 @@ function csp(): Plugin {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    // Única salida permitida: la API de GitHub para la sincronización cifrada.
+    "connect-src 'self' https://api.github.com",
     "worker-src 'self'",
     "manifest-src 'self'",
     "object-src 'none'",

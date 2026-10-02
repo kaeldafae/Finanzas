@@ -2,10 +2,20 @@ import type { Centimos, Tasa } from './dinero';
 
 export type Id = string;
 
+/**
+ * Metadatos de sincronización. Todos los registros los llevan:
+ *  - actualizadoEl: milisegundos de la última modificación (gana la más reciente al fusionar).
+ *  - borrado: los borrados se conservan como marca para que no "resuciten" desde otro dispositivo.
+ */
+export interface MetaSync {
+  actualizadoEl?: number;
+  borrado?: boolean;
+}
+
 export type TipoPagador = 'Empresa' | 'SEPE' | 'Otro';
 export const TIPOS_PAGADOR: readonly TipoPagador[] = ['Empresa', 'SEPE', 'Otro'];
 
-export interface Pagador {
+export interface Pagador extends MetaSync {
   id: Id;
   nombre: string;
   tipo: TipoPagador;
@@ -16,7 +26,7 @@ export interface Pagador {
 
 export type EstadoIngreso = 'Real' | 'Previsto';
 
-export interface Ingreso {
+export interface Ingreso extends MetaSync {
   id: Id;
   anio: number;
   mes: number;
@@ -34,7 +44,7 @@ export interface Ingreso {
 export type ConceptoExtra = 'Propinas' | 'Otro';
 export const CONCEPTOS_EXTRA: readonly ConceptoExtra[] = ['Propinas', 'Otro'];
 
-export interface IngresoExtra {
+export interface IngresoExtra extends MetaSync {
   id: Id;
   anio: number;
   mes: number;
@@ -49,7 +59,7 @@ export const TIPOS_GASTO: readonly TipoGasto[] = ['Fijo', 'Variable', 'Extra'];
 /** Claves estables de categorías con significado para el cálculo, aunque se renombren. */
 export type ClaveCategoria = 'alquiler' | 'impuestos';
 
-export interface Categoria {
+export interface Categoria extends MetaSync {
   id: Id;
   nombre: string;
   orden: number;
@@ -57,7 +67,7 @@ export interface Categoria {
   archivada: boolean;
 }
 
-export interface Gasto {
+export interface Gasto extends MetaSync {
   id: Id;
   anio: number;
   mes: number;
@@ -70,7 +80,7 @@ export interface Gasto {
 }
 
 /** Un mes "confirmado" existe aunque no tenga movimientos: cuenta como mes a 0, no como hueco. */
-export interface MesRegistro {
+export interface MesRegistro extends MetaSync {
   /** "2026-03" */
   id: string;
   anio: number;
@@ -137,7 +147,7 @@ export interface Porcentajes {
 
 export type Tema = 'auto' | 'claro' | 'oscuro';
 
-export interface Ajustes {
+export interface Ajustes extends MetaSync {
   id: 'ajustes';
   ahorroInicial: Centimos;
   /** Mes desde el que cuenta el ahorro inicial. */
@@ -154,6 +164,9 @@ export interface Ajustes {
   ultimaCopia: string | null;
   tema: Tema;
 }
+
+/** Campos de Ajustes que son de cada dispositivo y no se sincronizan. */
+export const AJUSTES_LOCALES = ['tema', 'ultimaCopia', 'actualizadoEl', 'borrado'] as const;
 
 export function idMes(anio: number, mes: number): string {
   return `${anio}-${String(mes).padStart(2, '0')}`;

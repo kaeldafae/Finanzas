@@ -8,6 +8,7 @@ import { exportarCopia, guardarAjustes, importarCopia } from '../../db/operacion
 import { useEstado } from '../../estado';
 import { descargarBlob } from '../../lib/descarga';
 import { diasDesde, fechaArchivo, formatearFecha } from '../../lib/fecha';
+import { useEstadoSync } from '../../sync/servicio';
 import { Aviso, Selector } from '../../ui/base';
 
 export function Copias() {
@@ -18,6 +19,7 @@ export function Copias() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [anioExcel, setAnioExcel] = useState(hoy.anio);
   const dias = diasDesde(ajustes.ultimaCopia);
+  const sincronizado = useEstadoSync().fase !== 'desactivada';
 
   const anios = [...new Set([hoy.anio, ...datos.ingresos.map((i) => i.anio), ...datos.gastos.map((g) => g.anio)])].sort((a, b) => b - a);
 
@@ -71,7 +73,10 @@ export function Copias() {
     <section className="card" aria-labelledby="t-copias">
       <h2 id="t-copias">Copia de seguridad</h2>
       <p className="peq muted">
-        Los datos solo están en este dispositivo. Si borras la app o cambias de móvil, sin copia se pierden. Última copia:{' '}
+        {sincronizado
+          ? 'Con la sincronización activa ya hay una copia cifrada en tu GitHub. Esta copia en archivo sirve además como respaldo independiente.'
+          : 'Los datos solo están en este dispositivo. Si borras la app o cambias de móvil, sin copia se pierden.'}{' '}
+        Última copia:{' '}
         <strong>{ajustes.ultimaCopia ? formatearFecha(ajustes.ultimaCopia) : 'nunca'}</strong>
         {dias !== null && dias > 30 && ` (hace ${dias} días)`}.
       </p>
