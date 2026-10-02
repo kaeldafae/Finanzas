@@ -17,6 +17,9 @@ export interface DatosNomina {
   otrasDeducciones: Centimos;
   neto: Centimos;
   periodo: Periodo | null;
+  /** Empresa y CIF tal como aparecen en la nómina (para elegir o crear el pagador). */
+  empresa: string | null;
+  cif: string | null;
   avisos: string[];
 }
 
@@ -54,6 +57,19 @@ function periodoDe(texto: string): Periodo | null {
   const m = new RegExp(`\\b(${MESES.join('|')})\\s+(?:de\\s+)?(20\\d{2})\\b`).exec(n);
   if (m?.[1] && m[2]) return { anio: Number(m[2]), mes: MESES.indexOf(m[1]) + 1 };
   return null;
+}
+
+/** "Empresa: HOTELES IBIZA SL" y el CIF (letra + 7 cifras + control) de la cabecera de la nómina. */
+function empresaDe(lineas: readonly string[]): { empresa: string | null; cif: string | null } {
+  let empresa: string | null = null;
+  let cif: string | null = null;
+  for (const l of lineas.slice(0, 40)) {
+    const m = /\b(?:empresa|razon social|razón social)\s*:?\s*(.+?)(?=\s{2,}|\s+(?:c\.?i\.?f|n\.?i\.?f|domicilio|periodo|centro)\b|$)/i.exec(l);
+    if (!empresa && m?.[1] && m[1].trim().length >= 3) empresa = m[1].trim().replace(/[.,;:]+$/, '');
+    const c = /\b([ABCDEFGHJNPQRSUVW])[- ]?(\d{7})[- ]?([0-9A-J])\b/.exec(l.toUpperCase());
+    if (!cif && c && /c\.?i\.?f|n\.?i\.?f|empresa/i.test(l)) cif = `${c[1] ?? ''}${c[2] ?? ''}${c[3] ?? ''}`;
+  }
+  return { empresa, cif };
 }
 
 export function leerNomina(textos: readonly TextoPdf[]): LecturaNomina {
@@ -94,8 +110,9 @@ export function leerNomina(textos: readonly TextoPdf[]): LecturaNomina {
   if (otrasDeducciones > 0) avisos.push('Hay otras deducciones (anticipos, embargos…) que no son cotización ni IRPF.');
   if (irpf === 0) avisos.push('No aparece retención de IRPF.');
   const periodo = periodoDe(texto);
+  const { empresa, cif } = empresaDe(lineas.map((l) => l.texto));
   if (!periodo) avisos.push('No encuentro el mes de la nómina: elígelo antes de aplicarla.');
-  return { ok: true, nomina: { bruto, seguridadSocial: ss, irpf, otrasDeducciones, neto, periodo, avisos } };
+  return { ok: true, nomina: { bruto, seguridadSocial: ss, irpf, otrasDeducciones, neto, periodo, empresa, cif, avisos } };
 }
 
 /**

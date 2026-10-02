@@ -66,3 +66,23 @@ test('Preguntar: respuestas exactas con evidencia y sin inventar', async ({ page
   await expect(p.getByText('No he entendido la pregunta')).toBeVisible();
   v.comprobar();
 });
+
+test('varias empresas: se crea la segunda desde la nómina y queda en Ajustes', async ({ page: p }) => {
+  const v = vigilar(p);
+  await abrir(p, 'mes');
+  await p.getByRole('button', { name: '+ Nómina / pago SEPE' }).click();
+  const dlg = p.getByRole('dialog');
+  await dlg.getByLabel('Empresa o pagador').selectOption({ label: '+ Nueva empresa o pagador…' });
+  await dlg.getByLabel('Nombre de la empresa').fill('Beach Club Salinas SL');
+  await dlg.getByLabel('NIF/CIF (opcional)').fill('b07654321');
+  await dlg.getByRole('button', { name: 'Crear' }).click();
+  await expect(dlg.getByLabel('Empresa o pagador')).toHaveValue(/.+/);
+  await expect(dlg.getByLabel('Empresa o pagador').locator('option:checked')).toHaveText('Beach Club Salinas SL (Empresa)');
+  await dlg.getByRole('button', { name: 'Cerrar' }).click();
+
+  await abrir(p, 'ajustes');
+  const sec = p.locator('section', { has: p.getByRole('heading', { name: 'Empresas y pagadores' }) });
+  await expect(sec).toContainText('Beach Club Salinas SL');
+  await expect(sec.getByRole('button', { name: '+ Empresa o pagador' })).toBeVisible();
+  v.comprobar();
+});

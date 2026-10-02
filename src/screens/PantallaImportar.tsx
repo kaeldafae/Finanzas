@@ -28,6 +28,8 @@ import { nuevoId } from '../db/db';
 import { useEstado } from '../estado';
 import { leerArchivoBanco } from '../lib/leerArchivo';
 import { PdfConContrasena } from '../lib/leerPdf';
+import { pagadorPorTexto } from '../domain/pagadores';
+import { SelectorPagador } from '../ui/SelectorPagador';
 import { Aviso, CampoTexto, Importe, Selector } from '../ui/base';
 
 // --- Utilidades ------------------------------------------------------------------------------
@@ -38,10 +40,10 @@ function categoriaPorClave(clave: ClaveCategoria | null, categorias: readonly Ca
   return activas.find((c) => c.clave === clave)?.id ?? activas.find((c) => c.clave === 'otros')?.id ?? null;
 }
 
-function pagadorPorTipo(tipo: Pagador['tipo'] | null, pagadores: readonly Pagador[]): string | null {
+/** Con varias empresas, la que aparece en el concepto del banco ("Nomina Hoteles Ibiza"). */
+function pagadorPorTipo(tipo: Pagador['tipo'] | null, pagadores: readonly Pagador[], concepto: string): string | null {
   if (!tipo) return null;
-  const candidatos = pagadores.filter((p) => !p.archivado && p.tipo === tipo);
-  return candidatos.length === 1 ? (candidatos[0]?.id ?? null) : null;
+  return pagadorPorTexto(concepto, pagadores, tipo);
 }
 
 function decisionInicial(m: MovimientoPropuesto, categorias: readonly Categoria[], pagadores: readonly Pagador[]): Decision {
@@ -50,7 +52,7 @@ function decisionInicial(m: MovimientoPropuesto, categorias: readonly Categoria[
     destino: m.propuesta.destino,
     categoriaId: m.propuesta.categoriaId ?? categoriaPorClave(m.propuesta.categoria ?? 'otros', categorias),
     tipoGasto: m.propuesta.tipoGasto,
-    pagadorId: pagadorPorTipo(m.propuesta.pagador, pagadores),
+    pagadorId: pagadorPorTipo(m.propuesta.pagador, pagadores, m.concepto),
     conceptoExtra: 'Otro',
     recordar: false,
   };
@@ -179,8 +181,8 @@ function PegarTexto({ onLeido }: { onLeido: (a: ArchivoCargado) => void }) {
 /** Nómina en PDF: completa el ingreso del banco con bruto, Seguridad Social y retención. */
 function NominaArchivo({ n }: { n: DatosNomina }) {
   const { datos, hoy } = useEstado();
-  const empresas = datos.pagadores.filter((p) => !p.archivado && p.tipo === 'Empresa');
-  const [pagadorId, setPagadorId] = useState(empresas[0]?.id ?? '');
+  // La empresa de la nómina (por CIF o nombre); si no está dada de alta, se ofrece crearla.
+  const [pagadorId, setPagadorId] = useState(pagadorPorTexto(n.empresa ?? '', datos.pagadores, 'Empresa', n.cif) ?? '');
   const [periodo, setPeriodo] = useState(n.periodo ? `${n.periodo.anio}-${String(n.periodo.mes).padStart(2, '0')}` : `${hoy.anio}-${String(hoy.mes).padStart(2, '0')}`);
   const [resultado, setResultado] = useState<string | null>(null);
   const m = /^(\d{4})-(\d{2})$/.exec(periodo);
@@ -197,10 +199,7 @@ function NominaArchivo({ n }: { n: DatosNomina }) {
       {n.avisos.length > 0 && <ul className="peq muted" style={{ paddingLeft: 18 }}>{n.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       <div className="rejilla-2">
         <CampoTexto etiqueta="Mes de la nómina (aaaa-mm)" valor={periodo} onCambio={setPeriodo} maxLength={7} />
-        <Selector etiqueta="Pagador" valor={pagadorId} onCambio={setPagadorId}>
-          <option value="">Elige…</option>
-          {datos.pagadores.filter((p) => !p.archivado).map((p) => <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>)}
-        </Selector>
+        <SelectorPagador valor={pagadorId} onCambio={setPagadorId} pagadores={datos.pagadores} error={pagadorId ? undefined : 'Elige la empresa'} sugerencia={n.empresa ? { nombre: n.empresa, nif: n.cif ?? undefined } : undefined} />
       </div>
       {resultado ? (
         <p className="peq pos" role="status">{resultado}</p>
@@ -496,10 +495,7 @@ function FilaMovimiento({ m, d, onCambio, categorias, pagadores, notaIA }: Props
           </Selector>
         )}
         {d.incluir && d.destino === 'ingreso' && (
-          <Selector etiqueta="Pagador" valor={d.pagadorId ?? ''} onCambio={(v) => onCambio({ ...d, pagadorId: v || null })} error={!d.pagadorId ? 'Elige' : undefined}>
-            <option value="">Elige…</option>
-            {pagadores.filter((p) => !p.archivado).map((p) => <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>)}
-          </Selector>
+          <SelectorPagador valor={d.pagadorId ?? ''} onCambio={(v) => onCambio({ ...d, pagadorId: v || null })} pagadores={pagadores} error={!d.pagadorId ? 'Elige' : undefined} />
         )}
         {d.incluir && d.destino === 'extra' && (
           <Selector etiqueta="Concepto" valor={d.conceptoExtra} onCambio={(v) => onCambio({ ...d, conceptoExtra: v as ConceptoExtra })}>

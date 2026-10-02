@@ -238,9 +238,12 @@ export async function gastosRentaExistentes(ejercicio: number, base: BaseDatos =
 
 // --- Pagadores y categorías -----------------------------------------------------------------
 
-export async function guardarPagador(p: Omit<Pagador, 'id'> & { id?: string }, base: BaseDatos = db): Promise<void> {
-  await base.pagadores.put(sellar({ ...p, id: p.id ?? nuevoId() }));
+/** Guarda (o crea) un pagador y devuelve su id. */
+export async function guardarPagador(p: Omit<Pagador, 'id'> & { id?: string }, base: BaseDatos = db): Promise<string> {
+  const id = p.id ?? nuevoId();
+  await base.pagadores.put(sellar({ ...p, id }));
   notificarCambio();
+  return id;
 }
 
 /** Si el pagador tiene ingresos se archiva (para no romper el histórico); si no, se borra. */
