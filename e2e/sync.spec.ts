@@ -73,11 +73,15 @@ test('sincronización cifrada entre dos dispositivos y cambio de contraseña', a
   await expect(pc.getByText('42,50 €').first()).toBeVisible();
 
   // Cambio de contraseña desde el móvil; el PC lo detecta y pide la nueva.
+  const sal = () => (JSON.parse(Buffer.from(gh.archivo?.b64 ?? '', 'base64').toString() || '{}') as { kdf?: { sal?: string } }).kdf?.sal;
+  const salAntes = sal();
   await movil.getByRole('link', { name: 'Ajustes' }).click();
   await movil.getByText('Cambiar contraseña de cifrado').click();
   await movil.getByLabel('Contraseña nueva', { exact: true }).fill('contraseña nueva segura 2026');
   await movil.getByLabel('Repite la contraseña nueva', { exact: true }).fill('contraseña nueva segura 2026');
   await movil.getByRole('button', { name: 'Cambiar contraseña', exact: true }).click();
+  // "Sincronizado ✓" ya estaba en pantalla: se espera a que GitHub tenga los datos con la clave nueva.
+  await expect.poll(sal).not.toBe(salAntes);
   await expect(movil.getByText('Sincronizado ✓')).toBeVisible();
   await anadirGasto(pc, 'Ocio', '7');
   await pc.getByRole('link', { name: 'Ajustes' }).click();
