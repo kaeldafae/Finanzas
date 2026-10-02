@@ -12,6 +12,7 @@ import {
 import { clasificar, UMBRAL_REVISION, type Destino, type Propuesta, type ReglaAprendida } from './clasificar';
 import type { ResultadoCuadre } from './cuadre';
 import type { LecturaExtracto } from './formatos';
+import { sugerencia, type Modelo } from './aprendizaje';
 import { huellas } from './huella';
 
 export interface ExtractoLeido {
@@ -110,6 +111,7 @@ export async function prepararImportacion(
   extractos: readonly ExtractoLeido[],
   reglas: ReadonlyMap<string, ReglaAprendida>,
   existentes: ReadonlySet<string>,
+  modelo: Modelo | null = null,
 ): Promise<MovimientoPropuesto[]> {
   const out: MovimientoPropuesto[] = [];
   for (const ex of extractos) {
@@ -130,8 +132,23 @@ export async function prepararImportacion(
     });
   }
   emparejarTraspasos(out);
+  if (modelo) aplicarAprendizaje(out, modelo);
   detectarRecurrentes(out);
   return out.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+}
+
+/**
+ * Para los gastos que el diccionario no reconoce (o son genéricos), el aprendizaje local propone una
+ * categoría. La propuesta se pre-rellena pero sigue en revisión: tú confirmas.
+ */
+export function aplicarAprendizaje(movs: MovimientoPropuesto[], modelo: Modelo): void {
+  for (const m of movs) {
+    const p = m.propuesta;
+    if (m.duplicado || p.destino !== 'gasto' || p.confianza >= UMBRAL_REVISION || p.limpio.persona || !p.limpio.comercio) continue;
+    const s = sugerencia(modelo, p.limpio.comercio);
+    if (!s) continue;
+    m.propuesta = { ...p, categoria: null, categoriaId: s.etiqueta, confianza: Math.min(p.confianza + 0.3, UMBRAL_REVISION - 0.01), motivo: `Sugerido por el aprendizaje local (${Math.round(s.probabilidad * 100)} %): confírmalo` };
+  }
 }
 
 export function necesitaRevision(m: MovimientoPropuesto): boolean {

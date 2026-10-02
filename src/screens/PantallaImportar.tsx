@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { formatearEuros } from '../domain/dinero';
+import { ejemplosDeEntrenamiento, entrenar } from '../domain/importacion/aprendizaje';
 import { UMBRAL_REVISION } from '../domain/importacion/clasificar';
 import { cuadrar } from '../domain/importacion/cuadre';
 import { cabecerasCandidatas, extraerMovimientos, leerExtracto, type Mapeo } from '../domain/importacion/formatos';
@@ -367,7 +368,9 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
     setOcupado('Clasificando movimientos…');
     try {
       const extractos = listos.flatMap((a) => (a.extracto ? [a.extracto] : []));
-      const movs = await prepararImportacion(extractos, await reglasAprendidas(), await huellasImportadas());
+      // El aprendizaje local se entrena aquí mismo con tus gastos ya clasificados.
+      const modelo = entrenar(ejemplosDeEntrenamiento((clave) => categoriaPorClave(clave as ClaveCategoria, datos.categorias), datos.gastos));
+      const movs = await prepararImportacion(extractos, await reglasAprendidas(), await huellasImportadas(), modelo);
       setDecisiones(new Map(movs.map((m) => [m.id, decisionInicial(m, datos.categorias, datos.pagadores)])));
       setFase({ paso: 'revision', movs });
     } catch (e) {

@@ -56,6 +56,35 @@ Los datos se guardan en un archivo cifrado dentro de un repositorio **privado** 
 
 ---
 
+## Importar extractos del banco
+
+*Ajustes → Importar extractos* (o el botón del mes vacío). Admite **CSV** y **Excel .xlsx**. Santander y Revolut se reconocen solos; en cualquier otro banco eliges las columnas una vez. Los archivos se leen **en el dispositivo** y no se envían a ningún sitio.
+
+**Cómo descargarlos**
+- **Revolut:** en la app, cuenta en euros → ⋯ → *Extracto* → Excel/CSV → periodo.
+- **Santander:** banca online → *Cuentas* → *Movimientos* → fechas → *Descargar* → Excel.
+
+Elige los de los dos bancos a la vez para que se emparejen los traspasos entre ellos.
+
+**Qué hace**
+1. **Comprueba que el extracto está completo:** saldo anterior + movimiento = saldo, fila a fila. Si algo no cuadra (falta una fila o un importe se ha leído mal), no se importa y te dice la fila.
+2. **Clasifica cada movimiento:**
+   - El tipo de operación de Revolut.
+   - Conceptos claros: SEPE, nómina, cajero, comisiones.
+   - Tus reglas.
+   - Un diccionario de comercios de España e Ibiza.
+   - Un **aprendizaje local** que reconoce variantes de comercios que ya has clasificado.
+3. **Traspasos:** el de Santander a Revolut no cuenta como gasto ni como ingreso. Las huchas van aparte y las devoluciones restan.
+4. **Lo dudoso pasa por tu revisión:** Amazon, Bizum, transferencias a personas, comercios desconocidos y entradas sin identificar. Si corriges un comercio, el cambio se aplica a todos sus movimientos y puedes guardarlo como regla.
+5. **Al guardar** verás un informe: ingresos, gastos y ahorro por mes, en qué se va el dinero, pagos que se repiten, gastos fuera de lo normal y un presupuesto sugerido.
+6. **Volver a importar un extracto, o uno que se solape, no duplica nada.**
+
+**Privacidad.** No se guarda el concepto del banco, ni IBAN, ni números de tarjeta, ni nombres de personas: solo el comercio limpio, la categoría, el importe, la fecha y la cuenta. El aprendizaje funciona en el dispositivo, sin conexión y sin ningún servicio externo.
+
+**Nóminas importadas.** El banco solo muestra el neto. Esos ingresos se marcan *Completar con la nómina* y la pantalla Renta avisa hasta que escribas bruto, Seguridad Social y retención.
+
+---
+
 ## Copia de seguridad
 
 Los datos viven solo en tu móvil: si borras la app o cambias de teléfono sin copia, se pierden.
@@ -120,6 +149,9 @@ src/
     copia.ts       esquema y validación de las copias JSON
     sync.ts        fusión entre dispositivos (última edición gana, borrados)
     cifrado.ts     AES-256-GCM + PBKDF2 con Web Crypto
+    flujo.ts       de dónde viene y adónde va el dinero, por cuenta
+    importacion/   lectura de extractos, cuadre de saldos, clasificación,
+                   aprendizaje local, traspasos e informe
   sync/       cliente de GitHub, motor de sincronización y orquestación
     parametros.ts  valores por defecto (editables desde Ajustes)
   db/         Dexie (IndexedDB): esquema versionado y operaciones atómicas
@@ -147,6 +179,7 @@ Configuración única en GitHub: *Settings → Pages → Build and deployment �
 | `react`, `react-dom` | interfaz |
 | `dexie`, `dexie-react-hooks` | IndexedDB con transacciones y consultas reactivas |
 | `write-excel-file` | genera `.xlsx` en el navegador |
+| `read-excel-file` | lee los extractos `.xlsx` en el navegador |
 | `vite`, `vite-plugin-pwa` | build, manifest y service worker (Workbox) |
 | `vitest`, `fake-indexeddb` | tests |
 
