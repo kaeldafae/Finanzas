@@ -207,3 +207,77 @@ describe('sincronización entre dispositivos', () => {
     expect(remoto.archivo?.sha).toBe(sha);
   });
 });
+
+describe('cambio de contraseña', () => {
+  it('un dispositivo conectado cambia la contraseña sin conocer la antigua; los demás piden la nueva y no se pierde nada', async () => {
+    const { recifrar } = await import('./motor');
+    const remoto = new RemotoMemoria();
+    const salVieja = generarSal();
+    const movil = await dispositivo();
+    const pc = await dispositivo();
+    const cMovil = await contexto(movil, remoto, salVieja, 'contraseña olvidada vieja');
+    const cPc = await contexto(pc, remoto, salVieja, 'contraseña olvidada vieja');
+    await guardarGasto({ ...gasto(10), id: 'del-movil' }, movil);
+    await sincronizar(cMovil);
+    await sincronizar(cPc);
+    await guardarGasto({ ...gasto(20), id: 'del-pc-sin-subir' }, pc);
+
+    const salNueva = generarSal();
+    const nueva = { clave: await derivarClave('contraseña nueva de verdad', salNueva, IT), sal: salNueva, iteraciones: IT };
+    await guardarGasto({ ...gasto(30), id: 'del-movil-reciente' }, movil);
+    await recifrar(movil, remoto, { clave: cMovil.clave, sal: salVieja, iteraciones: IT }, nueva);
+
+    // El PC, con la clave vieja, ya no puede sincronizar: se le pide la nueva.
+    await expect(sincronizar(cPc)).rejects.toMatchObject({ motivo: 'clave-cambiada' });
+    // Con la nueva, sincroniza y conserva lo que tenía pendiente.
+    await sincronizar({ ...cPc, ...nueva });
+    await sincronizar({ ...cMovil, ...nueva });
+    for (const base of [movil, pc]) {
+      expect((await leerTodo(base)).gastos.map((g) => g.id).sort()).toEqual(['del-movil', 'del-movil-reciente', 'del-pc-sin-subir']);
+    }
+    // La contraseña antigua ya no descifra nada.
+    await expect(sincronizar(await contexto(await dispositivo(), remoto, salNueva, 'contraseña olvidada vieja'))).rejects.toThrow(/contraseña/);
+  });
+
+  it('si otro dispositivo sube durante el cambio, se repite y el resultado queda cifrado con la nueva', async () => {
+    const { recifrar } = await import('./motor');
+    const remoto = new RemotoMemoria();
+    const sal = generarSal();
+    const a = await dispositivo();
+    const b = await dispositivo();
+    const ca = await contexto(a, remoto, sal);
+    const cb = await contexto(b, remoto, sal);
+    await sincronizar(ca);
+    await sincronizar(cb);
+    await guardarGasto({ ...gasto(5), id: 'de-b' }, b);
+    const salNueva = generarSal();
+    const nueva = { clave: await derivarClave('otra frase nueva larga', salNueva, IT), sal: salNueva, iteraciones: IT };
+    let veces = 0;
+    // Justo cuando a va a subir lo re-cifrado, b sube con la clave antigua.
+    const escribirOriginal = remoto.escribir.bind(remoto);
+    remoto.escribir = async (t, s) => {
+      if (t.includes(salNueva) && veces++ === 0) await sincronizar(cb);
+      return escribirOriginal(t, s);
+    };
+    await recifrar(a, remoto, { clave: ca.clave, sal, iteraciones: IT }, nueva);
+    expect(veces).toBeGreaterThan(1);
+    await sincronizar({ ...ca, ...nueva });
+    expect((await leerTodo(a)).gastos.map((g) => g.id)).toContain('de-b');
+  });
+
+  it('empezar de cero: sustituye GitHub por los datos de este dispositivo con contraseña nueva', async () => {
+    const { sobrescribirRemoto } = await import('./motor');
+    const remoto = new RemotoMemoria();
+    const a = await dispositivo();
+    await guardarGasto({ ...gasto(1), id: 'solo-en-remoto' }, a);
+    await sincronizar(await contexto(a, remoto, generarSal(), 'contraseña que nadie recuerda'));
+    const b = await dispositivo();
+    await guardarGasto({ ...gasto(2), id: 'datos-buenos' }, b);
+    const sal = generarSal();
+    const nueva = { clave: await derivarClave('empiezo de cero hoy', sal, IT), sal, iteraciones: IT };
+    await sobrescribirRemoto(b, remoto, nueva);
+    const c = await dispositivo();
+    await sincronizar({ base: c, cliente: remoto, ...nueva, primeraVez: true });
+    expect((await leerTodo(c)).gastos.map((g) => g.id)).toEqual(['datos-buenos']);
+  });
+});
