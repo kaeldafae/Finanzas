@@ -53,3 +53,13 @@ test('revisión con IA por copiar y pegar: anonimizada, doble y validada', async
   await expect(p.getByText(/incompleta o mal copiada/)).toBeVisible();
   v.comprobar();
 });
+
+test('Santander guardado con todo en una columna: se separa de nuevo y cuadra', async ({ page: p }) => {
+  const v = vigilar(p);
+  await importar(p, [`${DIR}/santander-una-columna.xlsx`]);
+  const tarjeta = p.locator('div.card', { hasText: 'santander-una-columna.xlsx' });
+  await expect(tarjeta).toContainText('4 movimientos');
+  await expect(tarjeta).toContainText('Cuadra con los saldos del banco');
+  await expect(tarjeta.getByLabel('Nombre de la cuenta')).toHaveValue('Santander');
+  v.comprobar();
+});

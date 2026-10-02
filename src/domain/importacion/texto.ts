@@ -20,7 +20,7 @@ function contarFuera(linea: string, sep: string): number {
  * Detecta el separador mirando muchas líneas, no solo la primera (que suele ser un título):
  * gana el que aparece el mismo número de veces en más líneas.
  */
-function detectarSeparador(texto: string): string {
+export function detectarSeparador(texto: string): string {
   const lineas = texto.split(/\r?\n|\r/).filter((l) => l.trim() !== '').slice(0, 60);
   let mejor = { sep: ',', lineas: 0, columnas: 0 };
   for (const sep of [';', ',', '\t', '|']) {
@@ -72,6 +72,19 @@ export function leerCsv(texto: string, interior = false): string[][] {
     return leerCsv(filas.map((r) => r[0] ?? '').join('\n'), true);
   }
   return filas;
+}
+
+/**
+ * Hoja con todo el texto en una sola columna ("Fecha,Concepto,Importe" en cada celda): pasa al abrir un
+ * CSV en Excel o Numbers y guardarlo sin separar columnas. Se vuelve a leer como CSV.
+ */
+export function desplegarUnaColumna(filas: readonly (readonly Celda[])[]): Celda[][] {
+  const textos = filas.map((r) => r.filter((c) => c !== null && String(c).trim() !== ''));
+  const conValor = textos.filter((r) => r.length > 0);
+  if (conValor.length < 2 || textos.some((r) => r.length > 1)) return filas.map((r) => [...r]);
+  const conSeparador = conValor.filter((r) => typeof r[0] === 'string' && /[;,\t|]/.test(r[0])).length;
+  if (conSeparador < conValor.length / 2) return filas.map((r) => [...r]);
+  return leerCsv(textos.map((r) => (r[0] === undefined ? '' : String(r[0]))).join('\n'));
 }
 
 // --- Importes con signo --------------------------------------------------------------------

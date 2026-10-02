@@ -137,7 +137,30 @@ function nombreBanco(filas: readonly (readonly Celda[])[], mapeo: Mapeo): { form
   return { formato: 'generico', banco: 'Cuenta' };
 }
 
-const COMPLETADO = new Set(['completed', 'completado', 'completada']);
+const COMPLETADO = new Set(['completed', 'completado', 'completada', 'completados']);
+
+/**
+ * El CSV de Revolut trae el tipo de operación en el idioma de la app ("Pago con tarjeta", "Recarga"...).
+ * Se traduce a los códigos que usa el clasificador (CARD_PAYMENT, TOPUP...).
+ */
+const TIPOS: readonly [RegExp, string][] = [
+  [/^(card[ _]payment|pago con tarjeta|pago tarjeta|compra con tarjeta)$/, 'CARD_PAYMENT'],
+  [/^(card[ _]refund|reembolso( con tarjeta| de tarjeta)?|devolucion( con tarjeta)?|refund)$/, 'CARD_REFUND'],
+  [/^(topup|top[ -]?up|recarga|ingreso de dinero|anadir dinero)$/, 'TOPUP'],
+  [/^(transfer|transferencia|transferencias)$/, 'TRANSFER'],
+  [/^(exchange|cambio|cambio de divisa|conversion)$/, 'EXCHANGE'],
+  [/^(atm|cajero|retirada( de efectivo)?|cash withdrawal)$/, 'ATM'],
+  [/^(fee|comision|comisiones|tarifa|cargo)$/, 'FEE'],
+  [/^(cashback|recompensa|reward|rewards)$/, 'CASHBACK'],
+  [/^(interest|intereses)$/, 'INTEREST'],
+];
+
+function tipoNormalizado(t: string): string | null {
+  const n = normalizarTexto(t);
+  if (!n) return null;
+  for (const [re, codigo] of TIPOS) if (re.test(n)) return codigo;
+  return n.toUpperCase().replace(/\s+/g, '_');
+}
 
 export function extraerMovimientos(filas: readonly (readonly Celda[])[], mapeo: Mapeo, deteccion: Deteccion = 'cabeceras'): LecturaExtracto {
   const movimientos: MovimientoBruto[] = [];
@@ -191,7 +214,7 @@ export function extraerMovimientos(filas: readonly (readonly Celda[])[], mapeo: 
       importe,
       comision: Math.abs(parsearImporteBanco(celda(r, mapeo.comision), mapeo.decimal) ?? 0),
       saldo: parsearImporteBanco(celda(r, mapeo.saldo), mapeo.decimal),
-      tipoBanco: textoCelda(celda(r, mapeo.tipo)).trim().toUpperCase() || null,
+      tipoBanco: tipoNormalizado(textoCelda(celda(r, mapeo.tipo))),
       producto: textoCelda(celda(r, mapeo.producto)).trim() || null,
     });
   }

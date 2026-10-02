@@ -3,7 +3,7 @@ import { cuadrar } from './cuadre';
 import { diagnosticoAnonimo, inferirPorContenido, leerExtracto, type LecturaExtracto } from './formatos';
 import { prepararImportacion, type ExtractoLeido } from './importar';
 import { claveSuelta } from './huella';
-import { parsearFecha, type Celda } from './texto';
+import { desplegarUnaColumna, leerCsv, parsearFecha, type Celda } from './texto';
 
 describe('fechas con el mes en letra', () => {
   it.each([
@@ -123,5 +123,61 @@ describe('duplicados entre formatos (PDF frente a CSV)', () => {
     const [m] = await prepararImportacion([extracto('Mercadona')], new Map(), new Set(), null, importados);
     expect(m?.duplicado).toBe(false);
     expect(m?.posibleDuplicado).toBeUndefined();
+  });
+});
+
+describe('hoja con todo en una columna y Revolut en español', () => {
+  const lineas = [
+    'Extracto de Revolut,,,,,,,,,,,',
+    ',,,,,,,,,,,',
+    'Cuenta corriente (EUR),,,,,,,,,,,',
+    ',,,,,,,,,,,',
+    'Tipo,Producto,Fecha de inicio,Fecha de finalización,Descripción,Importe,Comisión,Divisa,State,Saldo,,',
+    'Recarga,Actual,2026-03-01 09:00:00,2026-03-01 09:00:05,Transferencia de MICHAEL,600.00,0.00,EUR,COMPLETADO,600.00,,',
+    'Pago con tarjeta,Actual,2026-03-02 13:10:00,2026-03-03 08:00:00,Mercadona,-45.30,0.00,EUR,COMPLETADO,554.70,,',
+    'Pago con tarjeta,Actual,2026-03-04 13:10:00,,Amazon,-20.00,0.00,EUR,REVERTIDO,,,',
+    'Cajero,Actual,2026-03-08 11:00:00,2026-03-08 11:00:00,Retirada en Banco Santander,-50.00,1.00,EUR,COMPLETADO,503.70,,',
+  ];
+
+  it('una celda por fila (Excel/Numbers): se vuelve a separar en columnas y se lee', () => {
+    const filas = desplegarUnaColumna(lineas.map((l) => [l]));
+    const l = leerExtracto(filas);
+    expect(l?.formato).toBe('revolut');
+    expect(l?.movimientos.map((m) => [m.fecha, m.importe, m.tipoBanco])).toEqual([
+      ['2026-03-01', 60000, 'TOPUP'],
+      ['2026-03-03', -4530, 'CARD_PAYMENT'],
+      ['2026-03-08', -5000, 'ATM'],
+    ]);
+    expect(l?.descartados.map((d) => d.motivo)).toEqual(['Operación no completada (revertido)']);
+    expect(l && cuadrar(l.movimientos).estado).toBe('ok');
+  });
+
+  it('lo mismo como CSV entrecomillado línea a línea', () => {
+    const l = leerExtracto(leerCsv(lineas.map((x) => `"${x}"`).join('\n')));
+    expect(l?.movimientos).toHaveLength(3);
+  });
+
+  it('una hoja normal de una columna sin separadores no se toca', () => {
+    expect(desplegarUnaColumna([['Hola'], ['Adiós']])).toEqual([['Hola'], ['Adiós']]);
+  });
+});
+
+describe('Santander exportado y guardado en una sola columna', () => {
+  it('importes con coma decimal entre comillas, títulos antes de la cabecera, cuadra con el saldo', () => {
+    const lineas = [
+      'Consulta de movimientos Santander,,,,,,,,,,,',
+      ',,,,,,,,,,,',
+      'Cuenta Nomina (EUR),,,,,,,,,,,',
+      ',,,,,,,,,,,',
+      'Fecha Operación,Fecha Valor,Concepto,Importe,Divisa,Saldo,Divisa,,,,,',
+      '05/03/2026,05/03/2026,Bizum enviado a JUAN,"-15,00",EUR,"1.135,00",EUR,,,,,',
+      '02/03/2026,02/03/2026,Recibo Endesa,"-48,20",EUR,"1.150,00",EUR,,,,,',
+      '01/03/2026,01/03/2026,Transferencia a Revolut,"-600,00",EUR,"1.198,20",EUR,,,,,',
+      '28/02/2026,28/02/2026,Nomina Hoteles Ibiza,"1.798,20",EUR,"1.798,20",EUR,,,,,',
+    ];
+    const l = leerExtracto(desplegarUnaColumna(lineas.map((x) => [x])));
+    expect(l?.banco).toBe('Santander');
+    expect(l?.movimientos.map((m) => m.importe)).toEqual([-1500, -4820, -60000, 179820]);
+    expect(l && cuadrar(l.movimientos).estado).toBe('ok');
   });
 });

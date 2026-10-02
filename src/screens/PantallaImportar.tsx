@@ -656,12 +656,12 @@ export function PantallaImportar({ onTerminar }: { onTerminar: () => void }) {
           nuevos.push({ ...base, filas: [], extracto: null, error: null, candidatas: null, diagnostico: null, huella: await huellaArchivo(await f.arrayBuffer()), ocrPendiente: { imagen: f } });
           continue;
         }
-        const filas = await leerArchivoBanco(f);
+        const { filas, info } = await leerArchivoBanco(f);
         const lectura = leerExtracto(filas);
         nuevos.push({
           ...base, filas, error: null, huella: await huellaArchivo(await f.arrayBuffer()),
           candidatas: lectura ? null : cabecerasCandidatas(filas),
-          diagnostico: lectura ? null : diagnosticoAnonimo(filas),
+          diagnostico: lectura ? null : `${info}\n${diagnosticoAnonimo(filas)}`,
           extracto: lectura ? extractoDe(lectura) : null,
         });
       } catch (e) {

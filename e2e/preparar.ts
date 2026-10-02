@@ -17,6 +17,16 @@ export default async function preparar(): Promise<void> {
   ].map((r) => r.map((v) => (v === null ? null : { value: v })));
   await writeXlsxFile(santander).toFile(`${DIR}/santander.xlsx`);
 
+  // El mismo extracto abierto como CSV en Excel/Numbers y guardado con todo en una sola columna.
+  const unaColumna = [
+    'Consulta de movimientos Santander,,,,,,', ',,,,,,', 'Fecha Operación,Fecha Valor,Concepto,Importe,Divisa,Saldo,Divisa',
+    '05/03/2026,05/03/2026,Bizum enviado a JUAN GARCIA LOPEZ cena,"-15,00",EUR,"1.135,00",EUR',
+    '02/03/2026,02/03/2026,Recibo Endesa Energia Sau,"-48,20",EUR,"1.150,00",EUR',
+    '01/03/2026,01/03/2026,Transferencia A Favor De Revolut Ltd,"-600,00",EUR,"1.198,20",EUR',
+    '28/02/2026,28/02/2026,Nomina Hoteles Ibiza Sl,"1.798,20",EUR,"1.798,20",EUR',
+  ].map((l) => [{ value: l }]);
+  await writeXlsxFile(unaColumna).toFile(`${DIR}/santander-una-columna.xlsx`);
+
   writeFileSync(`${DIR}/revolut.csv`, `Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
 TOPUP,Current,2026-03-01 09:00:00,2026-03-01 09:00:05,Transfer from MICHAEL PEREZ,600.00,0.00,EUR,COMPLETED,600.00
 CARD_PAYMENT,Current,2026-03-02 13:10:00,2026-03-03 08:00:00,Mercadona,-45.30,0.00,EUR,COMPLETED,554.70
