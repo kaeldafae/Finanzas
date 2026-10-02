@@ -1,4 +1,4 @@
-import type { Categoria } from '../modelo';
+import type { Categoria, Gasto } from '../modelo';
 import { leerRespuesta, type ItemIA, type PropuestaIA } from './ia';
 
 /**
@@ -106,4 +106,51 @@ export async function revisarConIALocal(motor: MotorIA, items: readonly ItemIA[]
   const r1 = await pasada(motor, items, categorias, 1, progreso, 0, total);
   const r2 = await pasada(motor, items, categorias, 2, progreso, items.length, total);
   return { r1, r2 };
+}
+
+// --- Evaluación con tus propios datos ------------------------------------------------------------
+
+export interface EjemploEvaluacion {
+  comercio: string;
+  categoriaId: string;
+}
+
+/**
+ * Comercios que ya has clasificado (los importados y confirmados): sirven de respuesta correcta para
+ * medir el acierto real de cada modelo en tu dispositivo, sin enviar nada fuera.
+ */
+export function ejemplosDeEvaluacion(gastos: readonly Gasto[], categorias: readonly Categoria[], maximo = 40): EjemploEvaluacion[] {
+  const validas = new Set(categorias.filter((c) => categoriasParaIA([c]).length > 0 && !c.archivada).map((c) => c.id));
+  const vistos = new Map<string, EjemploEvaluacion>();
+  for (const g of gastos) {
+    if (!g.comercio || !g.huella || g.borrado || !validas.has(g.categoriaId)) continue;
+    const k = g.comercio.toLowerCase();
+    if (!vistos.has(k)) vistos.set(k, { comercio: g.comercio, categoriaId: g.categoriaId });
+  }
+  return [...vistos.values()].slice(0, maximo);
+}
+
+export interface ResultadoEvaluacion {
+  aciertos: number;
+  total: number;
+  sinRespuesta: number;
+  segundos: number;
+  fallos: { comercio: string; esperado: string; propuesto: string }[];
+}
+
+export async function evaluarModelo(motor: MotorIA, ejemplos: readonly EjemploEvaluacion[], categorias: readonly Categoria[], progreso?: (hechos: number, total: number) => void): Promise<ResultadoEvaluacion> {
+  const items: ItemIA[] = ejemplos.map((e, i) => ({ n: i + 1, comercio: e.comercio, veces: 1, rango: 'entre 10 y 50 €', sentido: 'gasto', ids: [] }));
+  const inicio = performance.now();
+  const r = await pasada(motor, items, categorias, 1, progreso ? (h, t) => progreso(h, t) : undefined, 0, items.length);
+  const nombre = (id: string) => categorias.find((c) => c.id === id)?.nombre ?? '?';
+  let aciertos = 0;
+  let sinRespuesta = 0;
+  const fallos: ResultadoEvaluacion['fallos'] = [];
+  ejemplos.forEach((e, i) => {
+    const p = r.propuestas.get(i + 1);
+    if (!p) sinRespuesta++;
+    else if (p.categoriaId === e.categoriaId) aciertos++;
+    else fallos.push({ comercio: e.comercio, esperado: nombre(e.categoriaId), propuesto: nombre(p.categoriaId) });
+  });
+  return { aciertos, total: ejemplos.length, sinRespuesta, segundos: Math.round((performance.now() - inicio) / 100) / 10, fallos };
 }

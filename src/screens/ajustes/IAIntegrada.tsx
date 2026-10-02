@@ -80,7 +80,7 @@ export function IAIntegrada() {
       {soporte?.ok && mod && (
         <>
           <Selector etiqueta="Modelo" valor={modelo} onCambio={(v) => void cambiarModelo(v)}>
-            {mod.MODELOS.map((m) => <option key={m.id} value={m.id}>{m.nombre} · {m.descarga} · para {m.recomendadoPara}</option>)}
+            {mod.MODELOS.map((m) => <option key={m.id} value={m.id}>{m.nombre} · memoria {m.memoria} · {m.recomendadoPara}</option>)}
           </Selector>
           <p className="peq">Estado: <strong>{descargado === null ? '…' : descargado ? 'descargado en este dispositivo ✓' : 'sin descargar'}</strong></p>
           {progreso && (
