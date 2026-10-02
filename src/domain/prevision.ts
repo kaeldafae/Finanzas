@@ -87,7 +87,8 @@ export function prever(e: EntradaPrevision): Prevision {
   // Gasto sin compromisos de un mes real: lo que no es un pago recurrente que ya prevemos aparte.
   const gastoLibre = (p: Periodo) =>
     sumar((indice.gastos.get(idMes(p.anio, p.mes)) ?? []).filter((g) => !categoriasComprometidas.has(g.categoriaId)).map(importeGasto));
-  const medianaIngresos = mediana(recientes.filter((m) => m.ingresos > 0).map((m) => m.ingresos));
+  // Con trabajo de temporada hay meses reales sin ingresos: cuentan (es más prudente que ignorarlos).
+  const medianaIngresos = mediana(recientes.map((m) => m.ingresos));
   const medianaGastoLibre = mediana(recientes.filter((m) => m.gastos > 0).map(gastoLibre));
 
   const supuestos = new Set<string>();
@@ -118,7 +119,7 @@ export function prever(e: EntradaPrevision): Prevision {
       supuestos.add('Ingresos sin prever: los del mismo mes del año anterior (trabajo de temporada).');
       bajar('media');
     } else {
-      lineas.push({ concepto: 'Ingresos', importe: medianaIngresos, origen: 'estimado', detalle: `Mediana de los últimos ${recientes.length} meses reales con ingresos` });
+      lineas.push({ concepto: 'Ingresos', importe: medianaIngresos, origen: 'estimado', detalle: `Mediana de los últimos ${recientes.length} meses reales (incluidos los que no tuvieron ingresos)` });
       supuestos.add('Sin datos del año anterior: ingresos con la mediana reciente. Revisa los meses de temporada.');
       bajar('baja');
     }

@@ -127,9 +127,14 @@ export function PantallaPreguntar() {
           <p className="peq muted" style={{ marginTop: 8 }}>
             <strong>Entendido como:</strong> {TIPOS[consulta.tipo]}
             {consulta.categoriaId && ` · ${nombreCat(consulta.categoriaId)}`}
-            {consulta.comercio && ` · ${consulta.comercio}`} · {mes(consulta.desde)}
-            {(consulta.hasta.anio !== consulta.desde.anio || consulta.hasta.mes !== consulta.desde.mes) && ` – ${mes(consulta.hasta)}`}
-            {consulta.desde2 && consulta.hasta2 && ` frente a ${mes(consulta.desde2)}`}
+            {consulta.comercio && ` · ${consulta.comercio}`}
+            {consulta.tipo !== 'recurrentes' && consulta.tipo !== 'objetivos' && (
+              <>
+                {' · '}{mes(consulta.desde)}
+                {(consulta.hasta.anio !== consulta.desde.anio || consulta.hasta.mes !== consulta.desde.mes) && ` – ${mes(consulta.hasta)}`}
+                {consulta.desde2 && consulta.hasta2 && ` frente a ${mes(consulta.desde2)}`}
+              </>
+            )}
             <br />
             <strong>De dónde sale:</strong> {r.evidencia}
           </p>
