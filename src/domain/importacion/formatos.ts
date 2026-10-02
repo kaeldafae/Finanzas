@@ -328,10 +328,15 @@ export function diagnosticoAnonimo(filas: readonly (readonly Celda[])[]): string
     return 'texto';
   };
   const cab = inicio > 0 ? (filas[inicio - 1] ?? []).map(textoCelda).map((c) => (/\d/.test(c) || c.length > 30 ? '…' : c)) : [];
+  // Forma de las primeras filas: letras → "a", números → "9". Se ve la estructura (separadores, comillas), no los datos.
+  const forma = (r: readonly Celda[]) => r.map((c) => textoCelda(c).replace(/\p{L}/gu, 'a').replace(/\d/g, '9').slice(0, 40)).join(' ¦ ').slice(0, 160);
+  const primeras = filas.filter((r) => r.some((c) => textoCelda(c).trim() !== '')).slice(0, 4);
   return [
-    `Filas: ${filas.length} · inicio de datos: ${inicio >= 0 ? `fila ${inicio + 1}` : 'no encontrado'}`,
+    `Filas: ${filas.length} · columnas por fila: ${[...new Set(filas.slice(0, 60).map((r) => r.length))].join(', ')} · inicio de datos: ${inicio >= 0 ? `fila ${inicio + 1}` : 'no encontrado'}`,
     `Títulos: ${cab.length ? cab.join(' | ') : 'sin fila de títulos'}`,
     ...perfiles.map((p) => `Columna ${p.indice + 1}: ${tipo(p)}`),
+    'Forma de las primeras filas (letras → a, números → 9):',
+    ...primeras.map((r) => `  ${forma(r)}`),
   ].join('\n');
 }
 

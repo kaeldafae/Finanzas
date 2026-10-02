@@ -5,17 +5,39 @@ export type Celda = string | number | boolean | Date | null;
 
 // --- CSV --------------------------------------------------------------------------------------
 
-/** Detecta el separador mirando la primera línea con contenido: ; , o tabulador. */
+/** Cuántas veces aparece el separador en la línea, sin contar lo que va entre comillas. */
+function contarFuera(linea: string, sep: string): number {
+  let n = 0;
+  let comillas = false;
+  for (const c of linea) {
+    if (c === '"') comillas = !comillas;
+    else if (c === sep && !comillas) n++;
+  }
+  return n;
+}
+
+/**
+ * Detecta el separador mirando muchas líneas, no solo la primera (que suele ser un título):
+ * gana el que aparece el mismo número de veces en más líneas.
+ */
 function detectarSeparador(texto: string): string {
-  const linea = texto.split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
-  const cuenta = (c: string) => linea.split(c).length - 1;
-  const candidatos: Array<[string, number]> = [[';', cuenta(';')], [',', cuenta(',')], ['\t', cuenta('\t')]];
-  candidatos.sort((a, b) => b[1] - a[1]);
-  return candidatos[0]?.[1] ? candidatos[0][0] : ',';
+  const lineas = texto.split(/\r?\n|\r/).filter((l) => l.trim() !== '').slice(0, 60);
+  let mejor = { sep: ',', lineas: 0, columnas: 0 };
+  for (const sep of [';', ',', '\t', '|']) {
+    const frecuencias = new Map<number, number>();
+    for (const l of lineas) {
+      const n = contarFuera(l, sep);
+      if (n > 0) frecuencias.set(n, (frecuencias.get(n) ?? 0) + 1);
+    }
+    for (const [columnas, veces] of frecuencias) {
+      if (veces > mejor.lineas || (veces === mejor.lineas && columnas > mejor.columnas)) mejor = { sep, lineas: veces, columnas };
+    }
+  }
+  return mejor.sep;
 }
 
 /** CSV según RFC 4180: comillas, comillas dobladas, saltos de línea dentro de comillas y BOM. */
-export function leerCsv(texto: string): string[][] {
+export function leerCsv(texto: string, interior = false): string[][] {
   const t = texto.replace(/^\uFEFF/, '');
   const sep = detectarSeparador(t);
   const filas: string[][] = [];
@@ -45,6 +67,10 @@ export function leerCsv(texto: string): string[][] {
   }
   fila.push(campo);
   if (fila.some((x) => x.trim() !== '')) filas.push(fila);
+  // Algunos programas guardan cada línea entera entre comillas: se vuelve a leer lo de dentro.
+  if (!interior && filas.length > 1 && filas.every((r) => r.length === 1) && filas.filter((r) => /[;,\t|]/.test(r[0] ?? '')).length > filas.length / 2) {
+    return leerCsv(filas.map((r) => r[0] ?? '').join('\n'), true);
+  }
   return filas;
 }
 

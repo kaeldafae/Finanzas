@@ -61,3 +61,24 @@ describe('fechas', () => {
     expect(parsearFecha('hola')).toBeNull();
   });
 });
+
+describe('CSV difíciles', () => {
+  it('primera línea de título sin separadores: el separador sale de las demás', () => {
+    const filas = leerCsv('Extracto de movimientos\nFecha;Concepto;Importe;Saldo\n01/03/2026;Mercadona, Ibiza;-45,30;554,70\n02/03/2026;Bar;-3,00;551,70\n');
+    expect(filas[1]).toEqual(['Fecha', 'Concepto', 'Importe', 'Saldo']);
+    expect(filas[2]).toEqual(['01/03/2026', 'Mercadona, Ibiza', '-45,30', '554,70']);
+  });
+
+  it('cada línea entera entre comillas', () => {
+    const filas = leerCsv('"Fecha,Concepto,Importe"\n"01/03/2026,Mercadona,-45.30"\n"02/03/2026,Bar,-3.00"\n');
+    expect(filas).toEqual([
+      ['Fecha', 'Concepto', 'Importe'],
+      ['01/03/2026', 'Mercadona', '-45.30'],
+      ['02/03/2026', 'Bar', '-3.00'],
+    ]);
+  });
+
+  it('separador barra vertical', () => {
+    expect(leerCsv('a|b|c\n1|2|3\n')).toEqual([['a', 'b', 'c'], ['1', '2', '3']]);
+  });
+});
