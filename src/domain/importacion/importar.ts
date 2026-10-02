@@ -13,7 +13,7 @@ import { clasificar, UMBRAL_REVISION, type Destino, type Propuesta, type ReglaAp
 import type { ResultadoCuadre } from './cuadre';
 import type { LecturaExtracto } from './formatos';
 import { sugerencia, type Modelo } from './aprendizaje';
-import { huellas } from './huella';
+import { claveSuelta, huellas } from './huella';
 
 export interface ExtractoLeido {
   /** Nombre de la cuenta elegido por la persona (p. ej. "Santander"). */
@@ -34,8 +34,10 @@ export interface MovimientoPropuesto {
   /** Solo en memoria durante la revisión; nunca se guarda. */
   concepto: string;
   propuesta: Propuesta;
-  /** Ya importado antes (misma huella). */
+  /** Ya importado antes (misma huella, o mismo día, importe y cuenta desde otro formato). */
   duplicado: boolean;
+  /** Hay un movimiento igual ya importado el día anterior o el siguiente: se deja fuera salvo que digas lo contrario. */
+  posibleDuplicado?: boolean;
   /** Huella del movimiento emparejado en otra cuenta. */
   pareja: string | null;
   /** Mismo comercio en varios meses con importe parecido. */
@@ -112,29 +114,66 @@ export async function prepararImportacion(
   reglas: ReadonlyMap<string, ReglaAprendida>,
   existentes: ReadonlySet<string>,
   modelo: Modelo | null = null,
+  /** Movimientos ya importados por cuenta, día e importe (claveSuelta → cuántos). */
+  importados: ReadonlyMap<string, number> = new Map(),
 ): Promise<MovimientoPropuesto[]> {
   const out: MovimientoPropuesto[] = [];
+  const enArchivos = new Map<string, number>();
   for (const ex of extractos) {
     const ordenados = ex.cuadre.ordenados;
     const ids = await huellas(ex.cuenta, ordenados);
     ordenados.forEach((m, i) => {
       const id = ids[i] ?? '';
       const { anio, mes } = periodo(m.fecha);
-      out.push({ id, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: m.importe, concepto: m.concepto, propuesta: clasificar(m, reglas), duplicado: existentes.has(id), pareja: null, recurrente: false });
+      // El n-ésimo movimiento igual (cuenta, día, importe) es duplicado si ya había al menos n importados.
+      const ya = (importe: number) => {
+        const clave = claveSuelta(ex.cuenta, m.fecha, importe);
+        const n = enArchivos.get(clave) ?? 0;
+        enArchivos.set(clave, n + 1);
+        return n < (importados.get(clave) ?? 0);
+      };
+      // Con comisión aparte (CSV de Revolut) se busca también el total: el PDF puede mostrarlo sumado.
+      const porImporte = ya(m.importe);
+      const porTotal = m.comision > 0 && ya(m.importe - m.comision);
+      const duplicado = existentes.has(id) || porImporte || porTotal;
+      out.push({ id, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: m.importe, concepto: m.concepto, propuesta: clasificar(m, reglas), duplicado, pareja: null, recurrente: false });
       if (m.comision > 0) {
         const idComision = `${id}-comision`;
         out.push({
           id: idComision, cuenta: ex.cuenta, fecha: m.fecha, anio, mes, importe: -m.comision, concepto: `Comisión ${ex.cuenta}`,
           propuesta: { destino: 'gasto', categoria: 'comisiones', categoriaId: null, tipoGasto: 'Variable', pagador: null, devolucion: false, confianza: 0.98, motivo: 'Comisión de la operación', limpio: { comercio: `Comisión ${ex.cuenta}`, clave: '', busqueda: '', persona: null } },
-          duplicado: existentes.has(idComision), pareja: null, recurrente: false,
+          duplicado: duplicado || existentes.has(idComision), pareja: null, recurrente: false,
         });
       }
     });
   }
+  marcarPosiblesDuplicados(out, importados, enArchivos);
   emparejarTraspasos(out);
   if (modelo) aplicarAprendizaje(out, modelo);
   detectarRecurrentes(out);
   return out.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+}
+
+/** Fecha ISO desplazada n días. */
+function moverDias(fecha: string, n: number): string {
+  return new Date(Date.parse(`${fecha}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Un banco puede fechar un pago con tarjeta el día de la compra en un formato y el de su cargo en otro.
+ * Si queda un movimiento ya importado igual (cuenta e importe) el día anterior o el siguiente sin
+ * corresponderse con nada de este archivo, se marca para que lo decidas tú.
+ */
+function marcarPosiblesDuplicados(movs: MovimientoPropuesto[], importados: ReadonlyMap<string, number>, enArchivos: ReadonlyMap<string, number>): void {
+  if (importados.size === 0) return;
+  for (const m of movs) {
+    if (m.duplicado || m.id.endsWith('-comision')) continue;
+    const sobra = [-1, 1].some((d) => {
+      const k = claveSuelta(m.cuenta, moverDias(m.fecha, d), m.importe);
+      return (importados.get(k) ?? 0) > (enArchivos.get(k) ?? 0);
+    });
+    if (sobra) m.posibleDuplicado = true;
+  }
 }
 
 /**
@@ -152,7 +191,7 @@ export function aplicarAprendizaje(movs: MovimientoPropuesto[], modelo: Modelo):
 }
 
 export function necesitaRevision(m: MovimientoPropuesto): boolean {
-  return !m.duplicado && m.propuesta.confianza < UMBRAL_REVISION;
+  return !m.duplicado && (m.propuesta.confianza < UMBRAL_REVISION || m.posibleDuplicado === true);
 }
 
 // --- Decisiones de la persona y filas resultantes -------------------------------------------

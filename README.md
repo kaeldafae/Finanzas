@@ -58,10 +58,16 @@ Los datos se guardan en un archivo cifrado dentro de un repositorio **privado** 
 
 ## Importar extractos del banco
 
-*Ajustes → Importar extractos* (o el botón del mes vacío). Admite **CSV** y **Excel .xlsx**. Santander y Revolut se reconocen solos; en cualquier otro banco eliges las columnas una vez. Los archivos se leen **en el dispositivo** y no se envían a ningún sitio.
+*Ajustes → Importar extractos* (o el botón del mes vacío). Admite **PDF**, **CSV** y **Excel .xlsx**. No tienes que elegir columnas: la app las localiza sola y lo comprueba con el saldo. Los archivos se leen **en el dispositivo** y no se envían a ningún sitio.
+
+**Cómo encuentra las columnas**
+- **PDF** (recomendado para Revolut): lee el texto del PDF con su posición en la página ([pdf.js](https://mozilla.github.io/pdf.js/), de Mozilla, ejecutado en la app) y reconstruye Fecha, Descripción, Dinero saliente, Dinero entrante y Saldo. Une los conceptos de dos líneas, salta cabeceras repetidas y pies de página, descarta las transacciones pendientes y las de las huchas (ya aparecen en la cuenta principal) y deduce el tipo de operación (recarga, cajero, cambio de divisa, transferencia…) del concepto. Además del saldo fila a fila, **comprueba que lo leído suma lo mismo que el resumen del propio extracto**; si no, no se importa.
+- **CSV y Excel:** por los títulos de las columnas (Santander, Revolut y la mayoría de bancos). Si no los reconoce, por el contenido: la columna de fechas, las de importes y la de texto; prueba las combinaciones posibles (importe con o sin signo, cargo y abono separados, cuál es el saldo) y se queda con la única que cuadra al céntimo con el saldo.
+- Si no hay una lectura segura, no importa nada y ofrece un **diagnóstico sin datos** (solo la estructura del archivo) que puedes copiar para pedir que se adapte el lector. La elección manual de columnas queda en *Opciones avanzadas* solo para emergencias.
+- No sirven los PDF escaneados o las fotos (no llevan texto). Si el PDF tiene contraseña, la app la pide y no la guarda.
 
 **Cómo descargarlos**
-- **Revolut:** en la app, cuenta en euros → ⋯ → *Extracto* → Excel/CSV → periodo.
+- **Revolut:** en la app, cuenta en euros → ⋯ → *Extracto* → PDF (o Excel/CSV) → periodo.
 - **Santander:** banca online → *Cuentas* → *Movimientos* → fechas → *Descargar* → Excel.
 
 Elige los de los dos bancos a la vez para que se emparejen los traspasos entre ellos.
@@ -77,7 +83,7 @@ Elige los de los dos bancos a la vez para que se emparejen los traspasos entre e
 3. **Traspasos:** el de Santander a Revolut no cuenta como gasto ni como ingreso. Las huchas van aparte y las devoluciones restan.
 4. **Lo dudoso pasa por tu revisión:** Amazon, Bizum, transferencias a personas, comercios desconocidos y entradas sin identificar. Si corriges un comercio, el cambio se aplica a todos sus movimientos y puedes guardarlo como regla.
 5. **Al guardar** verás un informe: ingresos, gastos y ahorro por mes, en qué se va el dinero, pagos que se repiten, gastos fuera de lo normal y un presupuesto sugerido.
-6. **Volver a importar un extracto, o uno que se solape, no duplica nada.**
+6. **Volver a importar un extracto, o uno que se solape, no duplica nada**, aunque llegue en otro formato: el mismo mes en PDF y en CSV se reconoce por cuenta, día e importe (también cuando el CSV separa la comisión y el PDF la suma). Si hay un importe igual ya importado el día anterior o el siguiente, se marca como *posible duplicado* y se deja fuera salvo que digas lo contrario.
 
 **IA integrada (en el dispositivo).** La app lleva un modelo de lenguaje que se ejecuta dentro del navegador con WebGPU ([WebLLM](https://github.com/mlc-ai/web-llm), modelos Qwen2.5 con licencia Apache-2.0). Se prepara en *Ajustes → IA integrada → Descargar y probar*:
 
@@ -200,6 +206,7 @@ Configuración única en GitHub: *Settings → Pages → Build and deployment �
 | `write-excel-file` | genera `.xlsx` en el navegador |
 | `read-excel-file` | lee los extractos `.xlsx` en el navegador |
 | `@mlc-ai/web-llm` | IA integrada: ejecuta el modelo en el dispositivo con WebGPU |
+| `pdfjs-dist` | lee el texto de los extractos en PDF en el dispositivo (pdf.js 6 no ejecuta código del PDF) |
 | `vite`, `vite-plugin-pwa` | build, manifest y service worker (Workbox) |
 | `vitest`, `fake-indexeddb` | tests |
 

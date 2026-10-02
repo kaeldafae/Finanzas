@@ -64,7 +64,7 @@ export function parsearImporteBanco(v: Celda, decimal: SeparadorDecimal): Centim
     const c = Math.round(v * 100);
     return Math.abs(c) <= MAX_CENTIMOS ? c : null;
   }
-  let t = v.trim().replace(/[\s\u00a0€]|EUR/gi, '').replace(/\u2212/g, '-');
+  let t = v.trim().replace(/[\s\u00a0\u202f€]|EUR/gi, '').replace(/\u2212/g, '-');
   let negativo = false;
   if (/^\(.*\)$/.test(t)) {
     negativo = true;
@@ -110,7 +110,41 @@ function fechaValida(a: number, m: number, d: number): string | null {
   return `${a}-${pad(m)}-${pad(d)}`;
 }
 
-/** Fecha ISO "aaaa-mm-dd". Acepta dd/mm/aaaa, dd-mm-aaaa, dd.mm.aaaa, aaaa-mm-dd[ hh:mm:ss], fechas y números de serie de Excel. */
+const MESES: Readonly<Record<string, number>> = {
+  ene: 1, enero: 1, jan: 1, january: 1, gen: 1, gener: 1,
+  feb: 2, febrero: 2, february: 2, febrer: 2,
+  mar: 3, marzo: 3, march: 3, marc: 3,
+  abr: 4, abril: 4, apr: 4, april: 4,
+  may: 5, mayo: 5, maig: 5,
+  jun: 6, junio: 6, june: 6, juny: 6,
+  jul: 7, julio: 7, july: 7, juliol: 7,
+  ago: 8, agosto: 8, aug: 8, august: 8, agost: 8,
+  sep: 9, sept: 9, septiembre: 9, setiembre: 9, september: 9, set: 9, setembre: 9,
+  oct: 10, octubre: 10, october: 10,
+  nov: 11, noviembre: 11, november: 11, novembre: 11,
+  dic: 12, diciembre: 12, dec: 12, december: 12, des: 12, desembre: 12,
+};
+
+/** Fechas con el mes en letra, como en los PDF: "1 ene 2026", "1 de enero de 2026", "Jan 1, 2026", "1 Jan 2026". */
+function fechaConMesEnLetra(t: string): string | null {
+  const n = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  let m = /^(\d{1,2})(?:\s+de)?\s+([a-z]+)\.?(?:\s+de)?,?\s+(\d{4})\b/.exec(n);
+  if (m) {
+    const mes = MESES[m[2] ?? ''];
+    return mes ? fechaValida(Number(m[3]), mes, Number(m[1])) : null;
+  }
+  m = /^([a-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})\b/.exec(n);
+  if (m) {
+    const mes = MESES[m[1] ?? ''];
+    return mes ? fechaValida(Number(m[3]), mes, Number(m[2])) : null;
+  }
+  return null;
+}
+
+/**
+ * Fecha ISO "aaaa-mm-dd". Acepta dd/mm/aaaa, dd-mm-aaaa, dd.mm.aaaa, aaaa-mm-dd[ hh:mm:ss], el mes en letra
+ * (español, inglés o catalán), fechas y números de serie de Excel.
+ */
 export function parsearFecha(v: Celda): string | null {
   if (v === null || typeof v === 'boolean') return null;
   if (v instanceof Date) {
@@ -132,7 +166,7 @@ export function parsearFecha(v: Celda): string | null {
     const a = Number(m[3]);
     return fechaValida(a < 100 ? 2000 + a : a, Number(m[2]), Number(m[1]));
   }
-  return null;
+  return fechaConMesEnLetra(t);
 }
 
 export function normalizarTexto(t: string): string {
