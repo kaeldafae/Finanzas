@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { derivarClave, descifrar, ErrorCifrado, generarSal, ITERACIONES_PBKDF2, leerSobre } from '../domain/cifrado';
 import { alCambiarDatos, db, type ConfigSync } from '../db/db';
-import { ErrorSync, sincronizar } from './motor';
+import { ErrorSync, recifrar, sincronizar, sobrescribirRemoto } from './motor';
 import { ClienteGitHub, ErrorRemoto } from './remoto';
 
 /*
@@ -200,6 +200,50 @@ export async function reintroducirContrasena(contrasena: string): Promise<void> 
   await descifrar(clave, sobre);
   await db.config.update('config', { clave, sal: sobre.kdf.sal, iteraciones: sobre.kdf.iteraciones });
   await sincronizarAhora();
+}
+
+/**
+ * Cambia la contraseña de cifrado desde un dispositivo ya conectado. No hace falta la antigua:
+ * este dispositivo guarda la clave y con ella descifra y vuelve a cifrar todo con la nueva.
+ */
+export async function cambiarContrasena(nueva: string): Promise<void> {
+  const config = await db.config.get('config');
+  if (!config) throw new Error('Este dispositivo no está conectado.');
+  clearTimeout(temporizador);
+  if (enCurso) await enCurso;
+  const sal = generarSal();
+  const clave = await derivarClave(nueva, sal, ITERACIONES_PBKDF2);
+  fijar({ fase: 'sincronizando', error: null, accion: null });
+  try {
+    await recifrar(
+      db,
+      new ClienteGitHub(config.repo, config.token),
+      { clave: config.clave, sal: config.sal, iteraciones: config.iteraciones },
+      { clave, sal, iteraciones: ITERACIONES_PBKDF2 },
+    );
+    const ultimaSync = new Date().toISOString();
+    await db.config.update('config', { clave, sal, iteraciones: ITERACIONES_PBKDF2, ultimaSync });
+    fijar({ fase: 'al-dia', ultimaSync, error: null, accion: null });
+  } catch (e) {
+    const d = describirError(e);
+    fijar({ fase: d.fase, error: d.mensaje, accion: d.accion });
+    throw e;
+  }
+}
+
+/**
+ * Si nadie recuerda la contraseña: sustituye lo que hay en GitHub por los datos de este dispositivo
+ * cifrados con una contraseña nueva, y deja este dispositivo conectado.
+ */
+export async function empezarDeCero({ repo, token, contrasena }: DatosConexion): Promise<void> {
+  const cliente = new ClienteGitHub(repo, token);
+  await cliente.verificarRepo();
+  const sal = generarSal();
+  const clave = await derivarClave(contrasena, sal, ITERACIONES_PBKDF2);
+  await sobrescribirRemoto(db, cliente, { clave, sal, iteraciones: ITERACIONES_PBKDF2 });
+  const ultimaSync = new Date().toISOString();
+  await db.config.put({ id: 'config', repo: repo.trim(), token: token.trim(), sal, iteraciones: ITERACIONES_PBKDF2, clave, ultimaSync });
+  fijar({ fase: 'al-dia', repo: repo.trim(), ultimaSync, error: null, accion: null });
 }
 
 /** Deja de sincronizar ESTE dispositivo. Los datos locales y los de GitHub no se tocan. */

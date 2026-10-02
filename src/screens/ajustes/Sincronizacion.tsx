@@ -5,11 +5,13 @@ import { descargarBlob } from '../../lib/descarga';
 import { fechaArchivo, formatearFecha } from '../../lib/fecha';
 import { validarRepo } from '../../sync/remoto';
 import {
+  cambiarContrasena,
   cambiarToken,
   comprobarRepo,
   conectar,
   describirError,
   desconectar,
+  empezarDeCero,
   reintroducirContrasena,
   sincronizarAhora,
   useEstadoSync,
@@ -59,6 +61,50 @@ function mensajeError(e: unknown): string {
   return describirError(e).mensaje;
 }
 
+/** Pide una contraseña nueva dos veces y ejecuta la acción. */
+function FormNuevaContrasena({ textoBoton, onEnviar, peligro = false }: { textoBoton: string; onEnviar: (contrasena: string) => Promise<void>; peligro?: boolean }) {
+  const [contrasena, setContrasena] = useState('');
+  const [confirmacion, setConfirmacion] = useState('');
+  const [intentado, setIntentado] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errValidacion = validarContrasena(contrasena, confirmacion) ?? undefined;
+
+  async function enviar(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setIntentado(true);
+    setError(null);
+    if (errValidacion) return;
+    setOcupado(true);
+    try {
+      await onEnviar(contrasena);
+      setContrasena('');
+      setConfirmacion('');
+      setIntentado(false);
+    } catch (err) {
+      setError(mensajeError(err));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => void enviar(e)} noValidate>
+      <CampoSecreto etiqueta="Contraseña nueva" valor={contrasena} onCambio={setContrasena} nueva error={intentado ? errValidacion : undefined} ayuda="Mínimo 10 caracteres. Mejor una frase de varias palabras. Guárdala en tu gestor de contraseñas." />
+      <CampoSecreto etiqueta="Repite la contraseña nueva" valor={confirmacion} onCambio={setConfirmacion} nueva />
+      {error && <Aviso>{error}</Aviso>}
+      <button type="submit" className={`btn bloque ${peligro ? 'peligro' : 'primario'}`} disabled={ocupado}>{ocupado ? 'Cifrando… (unos segundos)' : textoBoton}</button>
+    </form>
+  );
+}
+
+async function copiaAntesDeTocar(prefijo: string): Promise<void> {
+  const local = await leerTodo();
+  if (local.ingresos.length + local.gastos.length + local.extras.length === 0) return;
+  const copia = await exportarCopia();
+  descargarBlob(new Blob([JSON.stringify(copia, null, 2)], { type: 'application/json' }), `finanzas-${prefijo}-${fechaArchivo()}.json`);
+}
+
 function Alta() {
   const [repo, setRepo] = useState('');
   const [token, setToken] = useState('');
@@ -96,12 +142,10 @@ function Alta() {
     setError(null);
     if (errContrasena) return;
     try {
-      const local = await leerTodo();
-      if (existe && local.ingresos.length + local.gastos.length + local.extras.length > 0) {
+      if (existe) {
         // Antes de mezclar con los datos de otro dispositivo, copia de seguridad de lo que hay aquí.
         setOcupado('Guardando copia de seguridad de este dispositivo…');
-        const copia = await exportarCopia();
-        descargarBlob(new Blob([JSON.stringify(copia, null, 2)], { type: 'application/json' }), `finanzas-antes-de-sincronizar-${fechaArchivo()}.json`);
+        await copiaAntesDeTocar('antes-de-sincronizar');
       }
       setOcupado('Cifrando y conectando… (unos segundos)');
       await conectar({ repo: repo.trim(), token: token.trim(), contrasena });
@@ -137,6 +181,26 @@ function Alta() {
         <button type="button" className="btn" onClick={() => { setExiste(null); setError(null); }} disabled={ocupado !== null}>Atrás</button>
         <button type="submit" className="btn primario" disabled={ocupado !== null}>{ocupado ?? 'Conectar'}</button>
       </div>
+      {existe && (
+        <details style={{ marginTop: 14 }}>
+          <summary className="peq" style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' }}>¿Has olvidado la contraseña?</summary>
+          <p className="peq">
+            <strong>Si otro dispositivo tuyo está sincronizado</strong>, ve a ese dispositivo, Ajustes → Sincronización → <strong>Cambiar contraseña</strong>. No necesitas la antigua y no se pierde nada. Después vuelve aquí con la nueva.
+          </p>
+          <p className="peq">
+            <strong>Si ninguno lo está</strong>, puedes empezar de cero: lo que hay en GitHub se sustituye por los datos de <strong>este</strong> dispositivo, cifrados con una contraseña nueva. Lo que estuviera solo en GitHub se pierde. Antes se descarga una copia de este dispositivo.
+          </p>
+          <FormNuevaContrasena
+            peligro
+            textoBoton="Empezar de cero con los datos de este dispositivo"
+            onEnviar={async (nueva) => {
+              if (!window.confirm('Se sustituirá lo que hay en GitHub por los datos de este dispositivo. Lo que solo esté en GitHub se perderá. ¿Continuar?')) return;
+              await copiaAntesDeTocar('antes-de-empezar-de-cero');
+              await empezarDeCero({ repo: repo.trim(), token: token.trim(), contrasena: nueva });
+            }}
+          />
+        </details>
+      )}
     </form>
   );
 }
@@ -206,6 +270,21 @@ export function Sincronizacion() {
           </p>
           {e.error && <Aviso titulo="No se ha podido sincronizar">{e.error}</Aviso>}
           {e.accion && <Reparar key={e.accion} accion={e.accion} />}
+          {e.accion !== 'contrasena' && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center', fontWeight: 600 }}>Cambiar contraseña de cifrado</summary>
+              <p className="peq muted">
+                No necesitas la contraseña antigua: este dispositivo ya puede descifrar tus datos y los vuelve a cifrar con la nueva. Después, en tus otros dispositivos, escribe la nueva cuando te la pidan.
+              </p>
+              <FormNuevaContrasena
+                textoBoton="Cambiar contraseña"
+                onEnviar={async (nueva) => {
+                  await cambiarContrasena(nueva);
+                  window.alert('Contraseña cambiada. En tus otros dispositivos te pedirá la nueva.');
+                }}
+              />
+            </details>
+          )}
           <div className="botones">
             <button type="button" className="btn" onClick={() => void sincronizarAhora()} disabled={e.fase === 'sincronizando'}>Sincronizar ahora</button>
             <button type="button" className="btn peligro" onClick={() => void quitar()}>Desconectar</button>

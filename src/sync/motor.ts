@@ -116,3 +116,48 @@ export async function sincronizar(ctx: ContextoSync): Promise<ResultadoSync> {
   }
   throw new ErrorSync('Demasiados cambios simultáneos desde otros dispositivos. Se reintentará en un momento.', 'conflictos');
 }
+
+export interface ClaveCifrado {
+  clave: CryptoKey;
+  sal: string;
+  iteraciones: number;
+}
+
+/**
+ * Cambia la contraseña sin conocer la anterior: este dispositivo ya tiene la clave antigua,
+ * así que descifra lo que hay en GitHub y lo vuelve a cifrar con la clave nueva.
+ * Antes se sincroniza para que la versión re-cifrada incluya los últimos cambios de todos.
+ * Si otro dispositivo sube entre medias, se repite (la escritura usa control por sha).
+ */
+export async function recifrar(base: BaseDatos, cliente: ClienteRemoto, antigua: ClaveCifrado, nueva: ClaveCifrado, ahora: () => number = Date.now): Promise<void> {
+  const ctx: ContextoSync = { base, cliente, ...antigua, primeraVez: false, ahora };
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    await sincronizar(ctx);
+    const archivo = await cliente.leer();
+    if (!archivo) return;
+    const sobre = leerSobre(archivo.texto);
+    if (sobre.kdf.sal !== antigua.sal) {
+      throw new ErrorSync('La contraseña ya se ha cambiado desde otro dispositivo. Escribe la nueva para seguir.', 'clave-cambiada');
+    }
+    const plano = await descifrar(antigua.clave, sobre);
+    const nuevoSobre = await cifrar(nueva.clave, plano, { sal: nueva.sal, iteraciones: nueva.iteraciones }, new Date(ahora()));
+    const r = await cliente.escribir(JSON.stringify(nuevoSobre), archivo.sha);
+    if (r.ok) return;
+  }
+  throw new ErrorSync('Demasiados cambios simultáneos desde otros dispositivos. Inténtalo de nuevo.', 'conflictos');
+}
+
+/**
+ * Último recurso si ningún dispositivo recuerda la contraseña: sustituye lo que hay en GitHub
+ * por los datos de ESTE dispositivo, cifrados con la clave nueva. Lo que estuviera solo en GitHub se pierde.
+ */
+export async function sobrescribirRemoto(base: BaseDatos, cliente: ClienteRemoto, nueva: ClaveCifrado, ahora: () => number = Date.now): Promise<void> {
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    const archivo = await cliente.leer();
+    const local = await leerInstantanea(base);
+    const sobre = await cifrar(nueva.clave, paraSubir(local, ahora()), { sal: nueva.sal, iteraciones: nueva.iteraciones }, new Date(ahora()));
+    const r = await cliente.escribir(JSON.stringify(sobre), archivo?.sha ?? null);
+    if (r.ok) return;
+  }
+  throw new ErrorSync('No se ha podido sustituir el archivo de GitHub por cambios simultáneos. Inténtalo de nuevo.', 'conflictos');
+}
