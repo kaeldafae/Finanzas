@@ -4,11 +4,14 @@ App web instalable (PWA), **de uso doméstico**, para llevar las finanzas person
 
 - **Mes**: nóminas y pagos del SEPE por pagador, propinas, gastos fijos/variables/extra, resultado y reparto del sobrante.
 - **Año**: tabla y gráfico de los 12 meses, meses previstos diferenciados, saldo acumulado desde el ahorro inicial.
-- **Colchón**: objetivo (gasto medio × meses), progreso, lo que falta y fecha estimada.
+- **Futuro**: previsión de tu dinero a 30, 90, 180 o 365 días, mes a mes. Cada cifra dice si es *planificada* (lo que tienes apuntado como previsto y tus pagos recurrentes), *estimada* (con tu historia; con trabajo de temporada se usa el mismo mes del año anterior) o *simulada* («¿y si gasto 100 € menos al mes?», que nunca se guarda). Con supuestos, confianza y datos usados.
+- **Ahorro**: colchón de seguridad (gasto medio × meses), objetivos de ahorro (viaje, compra…) con progreso, fecha estimada, aportación necesaria y escenarios de 100/200/300 € al mes.
 - **Renta**: estimación del IRPF (solo rendimientos del trabajo) con desglose, obligación de declarar y qué hacer.
-- **Ajustes**: pagadores, categorías, parámetros fiscales, copias de seguridad y exportación a Excel.
+- **Preguntar** (desde Mes): «¿cuánto gasté en restaurantes este año?», «compara marzo y abril», «¿en qué gasto más?». Las cifras las calcula el motor y cada respuesta dice de dónde sale (cuántos movimientos, importados o a mano). Si una pregunta no se entiende, puede interpretarla la IA integrada, que solo traduce la pregunta: nunca escribe cifras.
+- **Ajustes**: pagadores, categorías, **pagos recurrentes** (detectados en tus gastos o a mano), presupuestos, parámetros fiscales, copias de seguridad, exportación a Excel e IA integrada.
+- **Cambios del mes** (en Mes): categorías por encima o por debajo de tu mediana, gastos sueltos fuera de lo normal y comisiones. Describe, no juzga.
 
-**Privacidad:** no hay servidor propio, ni cuentas, ni analítica, ni scripts de terceros. Los datos se guardan en el dispositivo (IndexedDB). Si activas la sincronización, viajan **cifrados de extremo a extremo** a un repositorio privado de tu GitHub. La Content Security Policy solo permite conectar con la propia app, con `api.github.com` (sincronización) y con los servidores desde los que se descarga el modelo de la IA integrada (`huggingface.co` y `raw.githubusercontent.com`): el navegador bloquea cualquier otro destino.
+**Privacidad:** no hay servidor propio, ni cuentas, ni analítica, ni scripts de terceros. El lector de PDF, el OCR y la IA se ejecutan en el dispositivo; sus archivos los sirve la propia app (salvo el modelo de IA, que se descarga una vez). Los datos se guardan en el dispositivo (IndexedDB). Si activas la sincronización, viajan **cifrados de extremo a extremo** a un repositorio privado de tu GitHub. La Content Security Policy solo permite conectar con la propia app, con `api.github.com` (sincronización) y con los servidores desde los que se descarga el modelo de la IA integrada (`huggingface.co` y `raw.githubusercontent.com`): el navegador bloquea cualquier otro destino.
 
 ---
 
@@ -64,7 +67,14 @@ Los datos se guardan en un archivo cifrado dentro de un repositorio **privado** 
 - **PDF** (recomendado para Revolut): lee el texto del PDF con su posición en la página ([pdf.js](https://mozilla.github.io/pdf.js/), de Mozilla, ejecutado en la app) y reconstruye Fecha, Descripción, Dinero saliente, Dinero entrante y Saldo. Une los conceptos de dos líneas, salta cabeceras repetidas y pies de página, descarta las transacciones pendientes y las de las huchas (ya aparecen en la cuenta principal) y deduce el tipo de operación (recarga, cajero, cambio de divisa, transferencia…) del concepto. Además del saldo fila a fila, **comprueba que lo leído suma lo mismo que el resumen del propio extracto**; si no, no se importa.
 - **CSV y Excel:** por los títulos de las columnas (Santander, Revolut y la mayoría de bancos). Si no los reconoce, por el contenido: la columna de fechas, las de importes y la de texto; prueba las combinaciones posibles (importe con o sin signo, cargo y abono separados, cuál es el saldo) y se queda con la única que cuadra al céntimo con el saldo.
 - Si no hay una lectura segura, no importa nada y ofrece un **diagnóstico sin datos** (solo la estructura del archivo) que puedes copiar para pedir que se adapte el lector. La elección manual de columnas queda en *Opciones avanzadas* solo para emergencias.
-- No sirven los PDF escaneados o las fotos (no llevan texto). Si el PDF tiene contraseña, la app la pide y no la guarda.
+- **PDF escaneado o foto:** se puede leer con **OCR en el dispositivo** ([Tesseract.js](https://tesseract.projectnaptha.com/), español). El motor y el idioma (~6 MB) se descargan de la propia app la primera vez que se usan. Lo reconocido pasa por el mismo lector y las mismas comprobaciones: si un número se lee mal, no cuadra y no se importa.
+- **Texto pegado:** en el iPhone, mantén pulsado el texto de una captura del extracto («Texto en vivo»), cópialo y pégalo en *Pegar texto*. Admite listas agrupadas por día y fechas sin año.
+- Si el PDF tiene contraseña, la app la pide y no la guarda.
+- **Cómo se ha leído:** cada archivo muestra las lecturas que se probaron (títulos, alineación, cadenas de saldo) y por qué se aceptó o rechazó cada una.
+
+**Nóminas en PDF.** Si el PDF es una nómina (se reconoce por sus rótulos), se leen total devengado, cotizaciones del trabajador, IRPF y líquido, y solo se acepta si *devengado − deducciones = líquido* al céntimo. *Aplicar nómina* completa el ingreso que llegó del banco con el mismo neto (ese mes o el siguiente) o lo crea si no existe. Así la Renta usa el bruto, la Seguridad Social y la retención reales.
+
+**Evidencia.** Cada movimiento importado guarda de qué archivo (huella SHA-256 abreviada, no el archivo), página y fila sale, y qué comprobaciones superó. Se ve al editar el gasto.
 
 **Cómo descargarlos**
 - **Revolut:** en la app, cuenta en euros → ⋯ → *Extracto* → PDF (o Excel/CSV) → periodo.
@@ -85,7 +95,9 @@ Elige los de los dos bancos a la vez para que se emparejen los traspasos entre e
 5. **Al guardar** verás un informe: ingresos, gastos y ahorro por mes, en qué se va el dinero, pagos que se repiten, gastos fuera de lo normal y un presupuesto sugerido.
 6. **Volver a importar un extracto, o uno que se solape, no duplica nada**, aunque llegue en otro formato: el mismo mes en PDF y en CSV se reconoce por cuenta, día e importe (también cuando el CSV separa la comisión y el PDF la suma). Si hay un importe igual ya importado el día anterior o el siguiente, se marca como *posible duplicado* y se deja fuera salvo que digas lo contrario.
 
-**IA integrada (en el dispositivo).** La app lleva un modelo de lenguaje que se ejecuta dentro del navegador con WebGPU ([WebLLM](https://github.com/mlc-ai/web-llm), modelos Qwen2.5 con licencia Apache-2.0). Se prepara en *Ajustes → IA integrada → Descargar y probar*:
+**IA integrada (en el dispositivo).** El modelo se ejecuta en un *worker*: la interfaz no se congela y la librería (~6 MB) solo se descarga si usas la IA. Modelos disponibles: Qwen2.5 0,5B (por defecto en móvil), Llama 3.2 1B y Qwen3 0,6B (a probar) y Qwen2.5 1,5B (ordenador). *Evaluar este modelo* mide el acierto real con los comercios que ya has clasificado tú, en tu dispositivo, para elegir con datos.
+
+**Detalles de la IA integrada.** La app lleva un modelo de lenguaje que se ejecuta dentro del navegador con WebGPU ([WebLLM](https://github.com/mlc-ai/web-llm), modelos Qwen2.5 con licencia Apache-2.0). Se prepara en *Ajustes → IA integrada → Descargar y probar*:
 
 - Se descarga **una vez** (≈ 300 MB el ligero, recomendado para móvil; ≈ 900 MB el preciso, para ordenador) y queda guardado para usarla **sin conexión**. Hazlo con wifi.
 - La descarga es solo del modelo; **tus movimientos nunca salen del dispositivo**. No hay clave de API ni cuenta de ningún proveedor.
@@ -155,7 +167,8 @@ Requisitos: Node 22.
 ```bash
 npm ci
 npm run dev        # servidor de desarrollo
-npm test           # Vitest: lógica de cálculo, copias e importación
+npm test           # Vitest: lógica de cálculo, copias, importación, previsión, asistente
+npm run e2e        # Playwright: pruebas en navegador de la app compilada (antes: npm run build)
 npm run lint       # ESLint (typescript-eslint strict, type-checked)
 npm run build      # tsc estricto + build de producción con service worker
 npm run preview    # sirve dist/ para probar la PWA
@@ -175,8 +188,15 @@ src/
     sync.ts        fusión entre dispositivos (última edición gana, borrados)
     cifrado.ts     AES-256-GCM + PBKDF2 con Web Crypto
     flujo.ts       de dónde viene y adónde va el dinero, por cuenta
-    importacion/   lectura de extractos, cuadre de saldos, clasificación,
-                   aprendizaje local, traspasos e informe
+    importacion/   lectura de extractos (CSV, Excel, PDF, texto, OCR), cuadre de saldos,
+                   nóminas, clasificación, aprendizaje local, traspasos, informe e IA
+    compromisos.ts pagos recurrentes: detección y próximos cargos
+    prevision.ts   previsión de caja (planificado / estimado / simulado, estacional)
+    objetivos.ts   objetivos de ahorro y escenarios
+    variaciones.ts cambios de gasto frente a tu mediana
+    asistente.ts   preguntas → consulta → motor exacto → respuesta con evidencia
+  ia/         worker y protocolo de la IA integrada (WebLLM)
+  lib/        lectura de archivos, PDF (pdf.js) y OCR (Tesseract.js)
   sync/       cliente de GitHub, motor de sincronización y orquestación
     parametros.ts  valores por defecto (editables desde Ajustes)
   db/         Dexie (IndexedDB): esquema versionado y operaciones atómicas
@@ -188,7 +208,8 @@ Reglas de diseño:
 
 - **Dinero en céntimos enteros.** Ninguna operación en euros con decimales; los porcentajes se aplican con un único redondeo comercial al céntimo.
 - **Sincronización.** Toda escritura fecha la fila (`actualizadoEl`) y los borrados se marcan (`borrado: true`). Las marcas de borrado se eliminan a los 90 días.
-- **Esquema versionado.** La v2 añadió la sincronización. Para añadir la pestaña de inversiones se crea `version(3)` en `src/db/db.ts` con las tablas nuevas (aportaciones y operaciones); Dexie migra los datos existentes. Las copias JSON llevan `schemaVersion`.
+- **Esquema versionado.** v2 sincronización, v3 importador, v4 importaciones, v5 pagos recurrentes y objetivos. Dexie migra los datos existentes; las copias JSON llevan `schemaVersion` y aceptan copias antiguas sin las tablas nuevas.
+- **Nada se inventa.** Lo que no se puede verificar (saldo, resumen, totales de la nómina) no se importa. La IA solo propone categorías o interpreta preguntas, siempre con salida JSON validada; nunca toca importes.
 - **Navegación por hash** (`#/renta`): GitHub Pages no reescribe rutas, así que recargar nunca da 404.
 
 ### Despliegue en GitHub Pages
@@ -206,7 +227,9 @@ Configuración única en GitHub: *Settings → Pages → Build and deployment �
 | `write-excel-file` | genera `.xlsx` en el navegador |
 | `read-excel-file` | lee los extractos `.xlsx` en el navegador |
 | `@mlc-ai/web-llm` | IA integrada: ejecuta el modelo en el dispositivo con WebGPU |
-| `pdfjs-dist` | lee el texto de los extractos en PDF en el dispositivo (pdf.js 6 no ejecuta código del PDF) |
+| `pdfjs-dist` | lee el texto de los extractos en PDF en el dispositivo (compilación *legacy* para Safari; pdf.js 6 no ejecuta código del PDF) |
+| `tesseract.js`, `@tesseract.js-data/spa` | OCR en el dispositivo para fotos y PDF escaneados (archivos servidos por la app, sin CDN) |
+| `@playwright/test` | pruebas en navegador (solo desarrollo) |
 | `vite`, `vite-plugin-pwa` | build, manifest y service worker (Workbox) |
 | `vitest`, `fake-indexeddb` | tests |
 

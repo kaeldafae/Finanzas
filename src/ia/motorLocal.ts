@@ -112,9 +112,15 @@ function pedir(p: SinId<Exclude<PeticionIA, { tipo: 'interrumpir' }>>, progreso?
   });
 }
 
+/**
+ * ¿Está el modelo ya en este dispositivo? Se mira directamente la caché del navegador donde WebLLM
+ * guarda los pesos ("webllm/model"), sin arrancar el worker: abrir Ajustes no descarga nada.
+ */
 export async function modeloDescargado(id: string): Promise<boolean> {
   try {
-    return (await pedir({ tipo: 'enCache', modelo: id })) === true;
+    if (!(await caches.has('webllm/model'))) return false;
+    const claves = await (await caches.open('webllm/model')).keys();
+    return claves.some((r) => r.url.includes(`/${id}/`) && r.url.endsWith('tensor-cache.json'));
   } catch {
     return false;
   }

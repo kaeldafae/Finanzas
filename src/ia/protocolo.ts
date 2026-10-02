@@ -5,7 +5,6 @@ import type { MensajeIA } from '../domain/importacion/iaLocal';
  * principal no la descarga (ahorra ~6 MB) y la interfaz no se congela mientras el modelo trabaja.
  */
 export type PeticionIA =
-  | { id: number; tipo: 'enCache'; modelo: string }
   | { id: number; tipo: 'borrar'; modelo: string }
   | { id: number; tipo: 'cargar'; modelo: string }
   | { id: number; tipo: 'generar'; mensajes: MensajeIA[]; esquema: string; maxTokens: number; sinRazonar: boolean }

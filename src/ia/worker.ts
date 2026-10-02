@@ -1,5 +1,5 @@
 // Hilo aparte donde vive la IA: descarga, caché y ejecución del modelo con WebGPU.
-import { deleteModelAllInfoInCache, hasModelInCache, MLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm';
+import { deleteModelAllInfoInCache, MLCEngine, prebuiltAppConfig } from '@mlc-ai/web-llm';
 import type { PeticionIA, RespuestaIA } from './protocolo';
 
 let motor: MLCEngine | null = null;
@@ -19,8 +19,6 @@ function obtenerMotor(): MLCEngine {
 
 async function atender(p: Exclude<PeticionIA, { tipo: 'interrumpir' }>): Promise<unknown> {
   switch (p.tipo) {
-    case 'enCache':
-      return hasModelInCache(p.modelo, prebuiltAppConfig);
     case 'borrar':
       await motor?.unload();
       await deleteModelAllInfoInCache(p.modelo, prebuiltAppConfig);
