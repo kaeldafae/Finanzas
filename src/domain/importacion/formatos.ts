@@ -1,4 +1,5 @@
 import type { Centimos } from '../dinero';
+import type { MetodoLectura } from '../modelo';
 import { cuadrar } from './cuadre';
 import { deducirDecimal, normalizarTexto, parsearFecha, parsearImporteBanco, type Celda, type SeparadorDecimal } from './texto';
 
@@ -17,6 +18,8 @@ export interface MovimientoBruto {
   tipoBanco: string | null;
   /** Producto de Revolut (cuenta corriente, ahorro/hucha...). */
   producto: string | null;
+  /** Página del PDF de la que sale (evidencia). */
+  pagina?: number;
 }
 
 export type FormatoBanco = 'revolut' | 'santander' | 'generico';
@@ -42,7 +45,7 @@ export interface Mapeo {
 }
 
 /** Cómo se han encontrado las columnas, para explicarlo en pantalla. */
-export type Deteccion = 'cabeceras' | 'contenido' | 'pdf' | 'manual';
+export type Deteccion = MetodoLectura;
 
 export interface Descartado {
   fila: number;
@@ -58,6 +61,8 @@ export interface LecturaExtracto {
   cabeceras: string[];
   mapeo: Mapeo;
   deteccion: Deteccion;
+  /** Lecturas probadas y por qué se aceptó o rechazó cada una (sin datos). */
+  hipotesis?: string[];
 }
 
 const SINONIMOS = {
@@ -293,8 +298,10 @@ export function inferirPorContenido(filas: readonly (readonly Celda[])[]): Lectu
 
   const verificadas: LecturaExtracto[] = [];
   const sinSaldo: LecturaExtracto[] = [];
+  let probadas = 0;
   for (const m of candidatos) {
     const l = extraerMovimientos(filas, m, 'contenido');
+    probadas++;
     if (l.movimientos.length === 0 || l.descartados.length > l.movimientos.length * 0.1) continue;
     const c = cuadrar(l.movimientos);
     if (m.saldo !== null && c.estado === 'ok' && c.comprobados > 0) verificadas.push(l);
@@ -303,12 +310,15 @@ export function inferirPorContenido(filas: readonly (readonly Celda[])[]): Lectu
   if (verificadas.length > 0) {
     // Varias combinaciones que cuadran solo valen si leen exactamente los mismos movimientos.
     const primera = verificadas[0];
-    return primera && verificadas.every((l) => firma(l) === firma(primera)) ? primera : null;
+    if (!primera || !verificadas.every((l) => firma(l) === firma(primera))) return null;
+    return { ...primera, hipotesis: [`${probadas} combinaciones de columnas probadas; ${verificadas.length} cuadra(n) con el saldo y leen lo mismo: aceptada.`] };
   }
   // Sin saldo para comprobar: solo si hay una única columna de importes con signo.
   if (numericas.length === 1 && sinSaldo.length >= 1) {
     const l = sinSaldo.find((x) => x.mapeo.importe !== null);
-    if (l && l.movimientos.some((m) => m.importe < 0) && l.movimientos.some((m) => m.importe > 0)) return l;
+    if (l && l.movimientos.some((m) => m.importe < 0) && l.movimientos.some((m) => m.importe > 0)) {
+      return { ...l, hipotesis: ['Sin columna de saldo: una única columna de importes con signo (no se puede verificar al céntimo).'] };
+    }
   }
   return null;
 }

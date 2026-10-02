@@ -160,6 +160,12 @@ function textoDeteccion(ex: ExtractoLeido): string | null {
         : 'Columnas detectadas automáticamente por su contenido.';
     case 'manual':
       return 'Columnas elegidas a mano.';
+    case 'texto':
+      return 'Leído del texto pegado.';
+    case 'ocr':
+      return 'Leído de la imagen con reconocimiento de texto (OCR) en este dispositivo.';
+    case 'nomina':
+      return null;
     case 'cabeceras':
       return null;
   }

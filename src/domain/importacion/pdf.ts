@@ -19,13 +19,13 @@ export interface TextoPdf {
   pagina: number;
 }
 
-interface Celda {
+export interface Celda {
   texto: string;
   x0: number;
   x1: number;
 }
 
-interface Linea {
+export interface Linea {
   pagina: number;
   y: number;
   alto: number;
@@ -67,7 +67,8 @@ export interface LecturaPdf {
 
 // --- Líneas y celdas -------------------------------------------------------------------------
 
-function agruparLineas(textos: readonly TextoPdf[]): Linea[] {
+/** Agrupa los fragmentos en líneas y celdas (por posición). */
+export function agruparLineas(textos: readonly TextoPdf[]): Linea[] {
   const items = textos.filter((t) => t.texto.trim() !== '').sort((a, b) => a.pagina - b.pagina || b.y - a.y || a.x - b.x);
   const lineas: { pagina: number; y: number; alto: number; items: TextoPdf[] }[] = [];
   for (const t of items) {
@@ -172,7 +173,7 @@ function separarFecha(texto: string): { fecha: string; resto: string } | null {
 
 const RE_IMPORTE = /^[-+\u2212(]?\s*(?:[€$£]|EUR|USD|GBP)?\s*[-\u2212]?\s*(?:\d{1,3}(?:[.,\s\u00a0\u202f]\d{3})+|\d+)(?:[.,]\d{1,2})?\s*(?:[€$£]|EUR|USD|GBP)?\s*[-)]?$/i;
 
-function esImporte(t: string): boolean {
+export function esImporte(t: string): boolean {
   return RE_IMPORTE.test(t.trim()) && /\d/.test(t);
 }
 
@@ -368,6 +369,8 @@ const CABECERA = ['Fecha', 'Concepto', 'Cargo', 'Abono', 'Importe', 'Saldo', 'Es
 
 interface Tabla {
   filas: string[][];
+  /** Página de cada fila de datos (filas[i + 1] → paginas[i]). */
+  paginas: number[];
   ahorro: Descartado[];
   cabeceras: number;
   cols: Columna[] | null;
@@ -375,6 +378,7 @@ interface Tabla {
 
 function extraerTabla(lineas: readonly Linea[], inferidas: Columna[] | null): Tabla {
   const filas: string[][] = [CABECERA];
+  const paginas: number[] = [];
   const ahorro: Descartado[] = [];
   let cols: Columna[] | null = inferidas;
   let activa = false;
@@ -423,7 +427,10 @@ function extraerTabla(lineas: readonly Linea[], inferidas: Columna[] | null): Ta
       if (seccion.ahorro) {
         ahorro.push({ fila: filas.length + ahorro.length + 1, motivo: 'Movimiento dentro de una hucha: ya aparece en la cuenta principal' });
         filaActual = null;
-      } else filas.push(filaActual);
+      } else {
+        filas.push(filaActual);
+        paginas.push(l.pagina);
+      }
       anterior = l;
       continue;
     }
@@ -443,7 +450,7 @@ function extraerTabla(lineas: readonly Linea[], inferidas: Columna[] | null): Ta
     anterior = l;
     seccion = seccionDeTitulo(l.texto, seccion);
   }
-  return { filas, ahorro, cabeceras, cols };
+  return { filas, paginas, ahorro, cabeceras, cols };
 }
 
 function lecturaDeTabla(t: Tabla, lineas: readonly Linea[], resumenes: readonly ResumenPdf[]): { lectura: LecturaExtracto; control: ControlResumen | null } | null {
@@ -472,7 +479,10 @@ function lecturaDeTabla(t: Tabla, lineas: readonly Linea[], resumenes: readonly 
   const base = extraerMovimientos(t.filas, mapeo, 'pdf');
   const lectura: LecturaExtracto = {
     ...base,
-    movimientos: base.movimientos.map((m) => ({ ...m, tipoBanco: tipoPorConcepto(m.concepto, m.importe) })),
+    movimientos: base.movimientos.map((m) => {
+      const pagina = t.paginas[m.fila - 2];
+      return { ...m, tipoBanco: tipoPorConcepto(m.concepto, m.importe), ...(pagina ? { pagina } : {}) };
+    }),
     banco: esRevolut ? 'Revolut' : /santander/i.test(inicio) ? 'Santander' : base.banco,
     formato: esRevolut ? 'revolut' : base.formato,
     descartados: [...base.descartados, ...t.ahorro],
@@ -622,5 +632,12 @@ export function leerPdfExtracto(textos: readonly TextoPdf[], paginas: number): L
   const resultado = elegida ?? porTitulos;
   const diagnostico = diagnosticar(textos, paginas, lineas, intentos, resumenes.length);
   if (textos.length === 0 || !resultado) return { lectura: null, control: null, diagnostico };
-  return { lectura: resultado.lectura, control: resultado.control, diagnostico };
+  // Registro de hipótesis: qué lecturas se probaron y cuál se aceptó (sin datos).
+  const hipotesis = intentos.map(({ nombre, r }) => {
+    const c = r ? cuadrar(r.lectura.movimientos) : null;
+    const ok = r !== null && r === elegida;
+    const motivo = !r ? 'no encuentra movimientos' : `saldos ${c?.estado === 'ok' ? 'cuadran' : c?.estado === 'sin-saldo' ? 'sin columna de saldo' : `no cuadran (${c?.descuadres.length ?? 0} fallos)`}${r.control ? ` · resumen ${r.control.ok ? 'coincide' : 'no coincide'}` : ''}`;
+    return `Lectura por ${nombre}: ${ok ? 'aceptada' : 'rechazada'} (${motivo}).`;
+  });
+  return { lectura: { ...resultado.lectura, hipotesis }, control: resultado.control, diagnostico };
 }

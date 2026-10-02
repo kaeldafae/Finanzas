@@ -7,12 +7,14 @@ import {
   sumarMeses,
   type Ajustes,
   type Categoria,
+  type Compromiso,
   type Gasto,
   type Ingreso,
   type IngresoExtra,
   type MesRegistro,
   type Importacion,
   type MetaSync,
+  type ObjetivoAhorro,
   type Pagador,
   type Periodo,
   type Presupuesto,
@@ -23,6 +25,7 @@ import { crearCopia, type CopiaSeguridad } from '../domain/copia';
 import type { DatosFinancieros } from '../domain/resumen';
 import { TABLAS_SYNC, type Instantanea } from '../domain/sync';
 import { claveSuelta } from '../domain/importacion/huella';
+import { emparejarNomina, type DatosNomina } from '../domain/importacion/nomina';
 import { db, marcaTiempo, notificarCambio, nuevoId, normalizarAjustes, sellar, tablasDatos, type BaseDatos } from './db';
 
 /*
@@ -484,5 +487,68 @@ export async function guardarPresupuestos(lista: ReadonlyArray<{ categoriaId: st
 
 export async function borrarRegla(id: string, base: BaseDatos = db): Promise<void> {
   await base.transaction('rw', base.reglas, () => marcarBorrado<Regla>(base.reglas, id));
+  notificarCambio();
+}
+
+// --- Nóminas --------------------------------------------------------------------------------
+
+export interface ResultadoNomina {
+  accion: 'completada' | 'creada';
+  ingresoId: string;
+}
+
+/**
+ * Completa con la nómina el ingreso que llegó del banco (mismo neto, ese mes o el siguiente) o, si no
+ * existe, crea el ingreso. El neto del banco no se toca: es el dato verificado.
+ */
+export async function aplicarNomina(n: DatosNomina, periodo: Periodo, pagadorId: string, base: BaseDatos = db): Promise<ResultadoNomina> {
+  const r = await base.transaction('rw', base.ingresos, async () => {
+    const ingresos = await base.ingresos.toArray();
+    const par = emparejarNomina(n, periodo, ingresos);
+    const cotizacion = { bruto: n.bruto, seguridadSocial: n.seguridadSocial, retencionIRPF: n.irpf };
+    const netoManual = n.bruto - n.seguridadSocial - n.irpf !== n.neto;
+    if (par) {
+      const { pendienteNomina: _p, ...resto } = par;
+      await base.ingresos.put(sellar({ ...resto, ...cotizacion, netoManual, nota: par.nota || 'Completado con la nómina' }));
+      return { accion: 'completada' as const, ingresoId: par.id };
+    }
+    const id = nuevoId();
+    await base.ingresos.add(
+      sellar<Ingreso>({ id, anio: periodo.anio, mes: periodo.mes, pagadorId, ...cotizacion, neto: n.neto, netoManual, estado: 'Real', nota: 'Desde la nómina (PDF)' }),
+    );
+    return { accion: 'creada' as const, ingresoId: id };
+  });
+  notificarCambio();
+  return r;
+}
+
+// --- Pagos recurrentes y objetivos ------------------------------------------------------------
+
+export async function guardarCompromiso(c: Omit<Compromiso, 'id'> & { id?: string }, base: BaseDatos = db): Promise<void> {
+  await base.compromisos.put(sellar({ ...c, id: c.id ?? nuevoId() }));
+  notificarCambio();
+}
+
+export async function borrarCompromiso(id: string, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.compromisos, () => marcarBorrado<Compromiso>(base.compromisos, id));
+  notificarCambio();
+}
+
+export async function guardarObjetivo(o: Omit<ObjetivoAhorro, 'id'> & { id?: string }, base: BaseDatos = db): Promise<void> {
+  await base.objetivos.put(sellar({ ...o, id: o.id ?? nuevoId() }));
+  notificarCambio();
+}
+
+/** Suma (o resta, si es negativa) una aportación a lo ya apartado. Nunca baja de 0. */
+export async function aportarObjetivo(id: string, importe: Centimos, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.objetivos, async () => {
+    const o = await base.objetivos.get(id);
+    if (o && !o.borrado) await base.objetivos.put(sellar({ ...o, importeActual: Math.max(0, o.importeActual + importe) }));
+  });
+  notificarCambio();
+}
+
+export async function borrarObjetivo(id: string, base: BaseDatos = db): Promise<void> {
+  await base.transaction('rw', base.objetivos, () => marcarBorrado<ObjetivoAhorro>(base.objetivos, id));
   notificarCambio();
 }
