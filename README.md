@@ -8,7 +8,7 @@ App web instalable (PWA), **de uso doméstico**, para llevar las finanzas person
 - **Renta**: estimación del IRPF (solo rendimientos del trabajo) con desglose, obligación de declarar y qué hacer.
 - **Ajustes**: pagadores, categorías, parámetros fiscales, copias de seguridad y exportación a Excel.
 
-**Privacidad:** no hay servidor propio, ni cuentas, ni analítica, ni scripts de terceros. Los datos se guardan en el dispositivo (IndexedDB). Si activas la sincronización, viajan **cifrados de extremo a extremo** a un repositorio privado de tu GitHub. La Content Security Policy solo permite conectar con la propia app y con `api.github.com`: el navegador bloquea cualquier otro destino.
+**Privacidad:** no hay servidor propio, ni cuentas, ni analítica, ni scripts de terceros. Los datos se guardan en el dispositivo (IndexedDB). Si activas la sincronización, viajan **cifrados de extremo a extremo** a un repositorio privado de tu GitHub. La Content Security Policy solo permite conectar con la propia app, con `api.github.com` (sincronización) y con los servidores desde los que se descarga el modelo de la IA integrada (`huggingface.co` y `raw.githubusercontent.com`): el navegador bloquea cualquier otro destino.
 
 ---
 
@@ -79,7 +79,16 @@ Elige los de los dos bancos a la vez para que se emparejen los traspasos entre e
 5. **Al guardar** verás un informe: ingresos, gastos y ahorro por mes, en qué se va el dinero, pagos que se repiten, gastos fuera de lo normal y un presupuesto sugerido.
 6. **Volver a importar un extracto, o uno que se solape, no duplica nada.**
 
-**Revisión con IA, doble y por copiar y pegar.** La app nunca se conecta a ninguna IA. En la revisión genera una petición con los comercios dudosos anonimizados: solo el nombre del comercio, cuántas veces aparece y un rango de importe. No incluye importes exactos, fechas, cuentas, Bizum ni transferencias a personas. Tú la copias en un chat nuevo de Claude y pegas la respuesta.
+**IA integrada (en el dispositivo).** La app lleva un modelo de lenguaje que se ejecuta dentro del navegador con WebGPU ([WebLLM](https://github.com/mlc-ai/web-llm), modelos Qwen2.5 con licencia Apache-2.0). Se prepara en *Ajustes → IA integrada → Descargar y probar*:
+
+- Se descarga **una vez** (≈ 300 MB el ligero, recomendado para móvil; ≈ 900 MB el preciso, para ordenador) y queda guardado para usarla **sin conexión**. Hazlo con wifi.
+- La descarga es solo del modelo; **tus movimientos nunca salen del dispositivo**. No hay clave de API ni cuenta de ningún proveedor.
+- Al importar, *Revisar con la IA integrada* hace **dos pasadas independientes** (otra redacción y otro orden) y aplica las mismas reglas que la revisión por copiar y pegar: solo propone lo que coincide en las dos, con seguridad suficiente y sin contradecir al diccionario. Las respuestas se validan contra un esquema JSON con las categorías existentes; un lote mal formado no se aplica.
+- *Descargar y probar* ejecuta además un diagnóstico (clasifica un comercio conocido) para confirmar que funciona en tu dispositivo.
+- Requisitos: Chrome o Edge actualizados en ordenador o Android; en iPhone, iOS 26 o posterior. Si el dispositivo no es compatible, la app lo dice y queda disponible la revisión por copiar y pegar.
+- El motor (≈ 6 MB) no se descarga al instalar la app: solo cuando la usas por primera vez. *Borrar modelo* libera el espacio.
+
+**Revisión con IA, doble y por copiar y pegar.** Alternativa sin descargas: la app no se conecta a ninguna IA. En la revisión genera una petición con los comercios dudosos anonimizados: solo el nombre del comercio, cuántas veces aparece y un rango de importe. No incluye importes exactos, fechas, cuentas, Bizum ni transferencias a personas. Tú la copias en un chat nuevo de Claude y pegas la respuesta.
 
 - Hay una **segunda petición independiente**, con otra redacción y otro orden, para pegar en otro chat nuevo. Solo se acepta lo que **coincide en las dos**, con seguridad suficiente y sin contradecir al diccionario de la app.
 - Lo que no coincide queda para que lo decidas tú.
@@ -190,6 +199,7 @@ Configuración única en GitHub: *Settings → Pages → Build and deployment �
 | `dexie`, `dexie-react-hooks` | IndexedDB con transacciones y consultas reactivas |
 | `write-excel-file` | genera `.xlsx` en el navegador |
 | `read-excel-file` | lee los extractos `.xlsx` en el navegador |
+| `@mlc-ai/web-llm` | IA integrada: ejecuta el modelo en el dispositivo con WebGPU |
 | `vite`, `vite-plugin-pwa` | build, manifest y service worker (Workbox) |
 | `vitest`, `fake-indexeddb` | tests |
 
