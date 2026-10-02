@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Ajustes, Categoria, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Importacion, Pagador, Presupuesto, Regla, Traspaso } from '../domain/modelo';
+import type { Ajustes, Categoria, Compromiso, Gasto, Ingreso, IngresoExtra, MesRegistro, MetaSync, Importacion, ObjetivoAhorro, Pagador, Presupuesto, Regla, Traspaso } from '../domain/modelo';
 import { ajustesPorDefecto, CATEGORIAS_POR_DEFECTO } from '../domain/parametros';
 
 export function nuevoId(): string {
@@ -66,6 +66,8 @@ export class BaseDatos extends Dexie {
   traspasos!: EntityTable<Traspaso, 'id'>;
   presupuestos!: EntityTable<Presupuesto, 'id'>;
   importaciones!: EntityTable<Importacion, 'id'>;
+  compromisos!: EntityTable<Compromiso, 'id'>;
+  objetivos!: EntityTable<ObjetivoAhorro, 'id'>;
 
   constructor(nombre = 'finanzas-personales') {
     super(nombre);
@@ -128,6 +130,9 @@ export class BaseDatos extends Dexie {
     // v4: registro de importaciones para poder deshacerlas.
     this.version(4).stores({ importaciones: 'id, fecha' });
 
+    // v5: pagos recurrentes (para la previsión) y objetivos de ahorro.
+    this.version(5).stores({ compromisos: 'id', objetivos: 'id' });
+
     this.on('populate', (tx) => {
       // Identificadores fijos y marca 0: un dispositivo recién instalado coincide con los demás
       // y nunca pisa categorías o pagadores que ya hayas cambiado en otro.
@@ -186,4 +191,12 @@ export function alCambiarDatos(oyente: Oyente): () => void {
 
 export function notificarCambio(): void {
   for (const o of oyentes) o();
+}
+
+/** Tablas de datos (las que se sincronizan) más ajustes: para abrir transacciones sobre todo. */
+export function tablasDatos(base: BaseDatos) {
+  return [
+    base.pagadores, base.categorias, base.ingresos, base.extras, base.gastos, base.meses, base.reglas,
+    base.traspasos, base.presupuestos, base.importaciones, base.compromisos, base.objetivos, base.ajustes,
+  ];
 }

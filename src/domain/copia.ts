@@ -2,6 +2,9 @@ import { MAX_CENTIMOS, TASA_UNIDAD } from './dinero';
 import {
   CLAVES_CATEGORIA,
   CONCEPTOS_EXTRA,
+  PERIODICIDADES,
+  type Compromiso,
+  type ObjetivoAhorro,
   idMes,
   TIPOS_GASTO,
   TIPOS_PAGADOR,
@@ -122,6 +125,12 @@ function datosImportacion(val: Validador, x: Registro, r: string): void {
   if (x['fecha'] !== undefined && (typeof x['fecha'] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x['fecha']))) val.error(`${r}.fecha`, 'fecha no válida');
   val.texto(x, 'cuenta', r, true);
   val.texto(x, 'huella', r, true);
+  const ev = x['evidencia'];
+  if (ev !== undefined && val.objeto(ev, `${r}.evidencia`)) {
+    val.texto(ev, 'archivo', `${r}.evidencia`);
+    val.entero(ev, 'fila', `${r}.evidencia`, 0, 10_000_000);
+    if (ev['pagina'] !== undefined) val.entero(ev, 'pagina', `${r}.evidencia`, 1, 100_000);
+  }
 }
 
 function validarTramos(val: Validador, v: unknown, ruta: string): v is Tramo[] {
@@ -363,8 +372,37 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
     val.entero(x, 'movimientos', r, 0, 1_000_000);
     if (!Array.isArray(x['cuentas']) || !x['cuentas'].every((c) => typeof c === 'string')) val.error(`${r}.cuentas`, 'debe ser una lista de textos');
     if (x['deshecha'] !== undefined) val.booleano(x, 'deshecha', r);
+    if (x['archivos'] !== undefined && !Array.isArray(x['archivos'])) val.error(`${r}.archivos`, 'debe ser una lista');
   });
   idsUnicos(val, importaciones, 'importaciones');
+
+  const compromisos = filasObjeto(val, datos, 'compromisos', true);
+  compromisos.forEach((x, i) => {
+    const r = `compromisos[${i}]`;
+    val.id(x, 'id', r);
+    val.texto(x, 'nombre', r);
+    val.id(x, 'categoriaId', r);
+    val.centimos(x, 'importe', r);
+    val.enumerado(x, 'periodicidad', r, PERIODICIDADES);
+    val.entero(x, 'ultimoAnio', r, 2000, 2100);
+    val.entero(x, 'ultimoMes', r, 1, 12);
+    val.booleano(x, 'activo', r);
+    val.enumerado(x, 'origen', r, ['detectado', 'manual']);
+  });
+  idsUnicos(val, compromisos, 'compromisos');
+
+  const objetivos = filasObjeto(val, datos, 'objetivos', true);
+  objetivos.forEach((x, i) => {
+    const r = `objetivos[${i}]`;
+    val.id(x, 'id', r);
+    val.texto(x, 'nombre', r);
+    val.centimos(x, 'importeObjetivo', r);
+    val.centimos(x, 'importeActual', r);
+    val.centimos(x, 'aportacionMensual', r);
+    if (x['fechaObjetivo'] !== null && (typeof x['fechaObjetivo'] !== 'string' || !/^\d{4}-\d{2}$/.test(x['fechaObjetivo']))) val.error(`${r}.fechaObjetivo`, 'debe ser aaaa-mm o null');
+    val.booleano(x, 'archivado', r);
+  });
+  idsUnicos(val, objetivos, 'objetivos');
 
   const ajustes = datos['ajustes'];
   validarAjustes(val, ajustes);
@@ -389,6 +427,8 @@ export function validarCopia(entrada: unknown, opciones: OpcionesValidacion = { 
         traspasos: traspasos as unknown as Traspaso[],
         presupuestos: presupuestos as unknown as Presupuesto[],
         importaciones: importaciones as unknown as Importacion[],
+        compromisos: compromisos as unknown as Compromiso[],
+        objetivos: objetivos as unknown as ObjetivoAhorro[],
         ajustes: ajustes as Ajustes,
       },
     },
