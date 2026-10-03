@@ -14,6 +14,7 @@ function nomina(liquido = '1.508,95'): TextoPdf[] {
   return [
     ...linea(800, [[40, 'RECIBO INDIVIDUAL JUSTIFICATIVO DEL PAGO DE SALARIOS']]),
     ...linea(780, [[40, 'Empresa: HOTELES IBIZA SL'], [300, 'Periodo de liquidación: del 01/05/2026 al 31/05/2026']]),
+    ...linea(768, [[40, 'Domicilio: C/ Mayor 1, Ibiza'], [300, 'CIF: B-07123456']]),
     ...linea(740, [[40, 'I. DEVENGOS'], [480, 'TOTALES']]),
     ...linea(725, [[40, 'Salario base'], [480, '1.400,00']]),
     ...linea(712, [[40, 'Plus de transporte'], [480, '450,00']]),
@@ -38,7 +39,7 @@ describe('nóminas', () => {
     const r = leerNomina(nomina());
     expect(r).toEqual({
       ok: true,
-      nomina: { bruto: 185000, seguridadSocial: 12005, irpf: 22100, otrasDeducciones: 0, neto: 150895, periodo: { anio: 2026, mes: 5 }, avisos: [] },
+      nomina: { bruto: 185000, seguridadSocial: 12005, irpf: 22100, otrasDeducciones: 0, neto: 150895, periodo: { anio: 2026, mes: 5 }, empresa: 'HOTELES IBIZA SL', cif: 'B07123456', avisos: [] },
     });
   });
 

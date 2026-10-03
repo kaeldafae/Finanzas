@@ -37,7 +37,7 @@ function FormPagador({ pagador, onCerrar }: { pagador: Pagador | null; onCerrar:
   }
 
   return (
-    <Dialogo abierto titulo={pagador ? 'Editar pagador' : 'Nuevo pagador'} onCerrar={onCerrar}>
+    <Dialogo abierto titulo={pagador ? 'Editar empresa o pagador' : 'Nueva empresa o pagador'} onCerrar={onCerrar}>
       <form onSubmit={(e) => void guardar(e)} noValidate>
         <CampoTexto etiqueta="Nombre" valor={nombre} onCambio={(v) => { setNombre(v); setError(undefined); }} error={error} autoFocus maxLength={80} />
         <Segmentado<TipoPagador> etiqueta="Tipo" valor={tipo} onCambio={setTipo} opciones={TIPOS_PAGADOR.map((t) => ({ valor: t, texto: t }))} />
@@ -109,7 +109,8 @@ export function Listas() {
   return (
     <>
       <section className="card" aria-labelledby="t-pagadores">
-        <h2 id="t-pagadores">Pagadores</h2>
+        <h2 id="t-pagadores">Empresas y pagadores</h2>
+        <p className="peq muted">Si has trabajado en varias empresas, añade una por empresa. Al apuntar o importar un ingreso eliges de cuál viene, y la Renta las cuenta por separado.</p>
         <ul className="lista">
           {datos.pagadores.map((p) => (
             <li key={p.id} className="fila">
@@ -123,7 +124,7 @@ export function Listas() {
           ))}
         </ul>
         <div className="botones">
-          <button type="button" className="btn" onClick={() => setPagador('nuevo')}>+ Pagador</button>
+          <button type="button" className="btn" onClick={() => setPagador('nuevo')}>+ Empresa o pagador</button>
         </div>
       </section>
 

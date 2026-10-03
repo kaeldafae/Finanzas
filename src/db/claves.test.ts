@@ -42,7 +42,7 @@ describe('movimientos ya importados por cuenta, día e importe', () => {
 });
 
 describe('nómina aplicada al ingreso del banco', () => {
-  const nomina = { bruto: 185000, seguridadSocial: 12005, irpf: 22100, otrasDeducciones: 0, neto: 150895, periodo: { anio: 2026, mes: 5 }, avisos: [] };
+  const nomina = { bruto: 185000, seguridadSocial: 12005, irpf: 22100, otrasDeducciones: 0, neto: 150895, periodo: { anio: 2026, mes: 5 }, empresa: null, cif: null, avisos: [] };
 
   it('completa el ingreso importado del mes siguiente con el mismo neto', async () => {
     await base.ingresos.add({ id: 'banco', anio: 2026, mes: 6, pagadorId: 'p', bruto: 150895, seguridadSocial: 0, retencionIRPF: 0, neto: 150895, netoManual: false, estado: 'Real', nota: '', pendienteNomina: true, huella: 'h' });

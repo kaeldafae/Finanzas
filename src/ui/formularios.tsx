@@ -26,6 +26,7 @@ import {
 } from '../db/operaciones';
 import { useEstado } from '../estado';
 import { Aviso, CampoTexto, Dialogo, Segmentado, Selector } from './base';
+import { SelectorPagador } from './SelectorPagador';
 
 function aCentimos(texto: string): { valor: Centimos | null; error?: string } {
   if (texto.trim() === '') return { valor: null };
@@ -153,15 +154,7 @@ export function FormIngreso({ periodo, ingreso, onCerrar }: PropsIngreso) {
   return (
     <Dialogo abierto titulo={ingreso ? 'Editar ingreso' : `Nómina / pago SEPE · ${nombreMes(periodo.mes)}`} onCerrar={onCerrar}>
       <form onSubmit={(e) => void enviar(e)} noValidate>
-        <Selector etiqueta="Pagador" valor={pagadorId} onCambio={elegirPagador} error={mostrar(errores.pagadorId)}>
-          <option value="">Elige pagador…</option>
-          {pagadores.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nombre} ({p.tipo})
-            </option>
-          ))}
-        </Selector>
-        {pagadores.length === 0 && <Aviso>No hay pagadores. Créalos en Ajustes.</Aviso>}
+        <SelectorPagador valor={pagadorId} onCambio={elegirPagador} pagadores={pagadores} error={mostrar(errores.pagadorId)} />
         <Segmentado<EstadoIngreso>
           etiqueta="Estado"
           valor={estado}
